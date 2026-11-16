@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "Forma",
+    "slug": "forma",
+    "scheme": "forma",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#070806",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.forma.coach",
+      "infoPlist": {
+        "UIBackgroundModes": ["remote-notification"]
+      }
+    },
+    "android": {
+      "package": "com.forma.coach",
+      "adaptiveIcon": {
+        "backgroundColor": "#070806",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png",
+      "name": "Forma — AI Personal Gym Coach",
+      "shortName": "Forma",
+      "themeColor": "#070806",
+      "backgroundColor": "#070806"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-notifications"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
