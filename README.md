@@ -1,174 +1,245 @@
 # Forma
 
-An AI personal gym coach built with Expo, React Native, TypeScript, and Supabase. Forma turns a short onboarding into a personal training plan, runs the workout with a live rest timer, records every set, and reflects the results in real progress analytics. The coach is grounded in the user's own profile, plan, and training history.
+Forma is a native iOS AI personal gym coach written in SwiftUI. It turns a short
+onboarding into a personal training plan, runs workouts with a live rest timer,
+records every set, and reflects the results in progress analytics. The coach is
+grounded in the athlete's own profile, plan, and training history, and in a
+curated fitness knowledge base plus optional live web retrieval.
 
-> Forma is training software, not medical care. It does not diagnose or treat injuries, and it tells the user to stop and seek a professional when they report pain or dizziness.
+> Forma is training software, not medical care. It does not diagnose or treat
+> injuries, and it tells the athlete to stop and seek a professional when they
+> report pain or dizziness.
 
-## Stack
+## Repository layout
 
-- Expo SDK 58 / React Native 0.88 / React 19 / TypeScript
-- Expo Router (typed routes) with a custom tab bar
-- Supabase: Postgres, Auth, Row Level Security, Edge Functions
-- OpenAI Chat Completions called only from a Supabase Edge Function
-- AsyncStorage, expo-notifications, expo-haptics, react-native-svg, date-fns
+```
+native/                Native SwiftUI app (the shipping client)
+  Forma/               App sources: Core, UI, Store, Services, Screens, Resources
+  FormaTests/          Hosted unit tests, including gated live-backend tests
+  FormaUITests/        End-to-end XCUITest coverage
+  SETUP.md             Full backend, signing, and test instructions
+supabase/
+  migrations/          Schema, RLS, seed, memory/realtime, knowledge/usage
+  functions/           Deno Edge Functions: coach-chat, coach-plan,
+                       delete-account, knowledge-ingest
+  knowledge/           Curated corpus and evaluation datasets
+  .env.example         Every supported server secret and limit
+scripts/               Ingestion, seeding, brand assets, live AI evaluation
+tests/                 Node tests that execute the shipped TypeScript modules
+src/                   Legacy Expo prototype (kept for reference, not shipped)
+```
 
-## Run the app
+`native/SETUP.md` is the authoritative setup guide. This README is a summary.
+
+## Build and run
+
+Requirements: Xcode 26 or newer, iOS 18.0 deployment target, iPhone only.
 
 ```bash
-npm install
-cp .env.example .env        # fill in the values described below
-npx expo start              # press i, a, or w
+cd native
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild -project Forma.xcodeproj -scheme Forma \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 ```
 
-Useful checks:
+Open `Forma.xcodeproj` in Xcode and Run, or install the built app with
+`xcrun simctl install` / `launch`.
 
-```bash
-npx tsc --noEmit
-npx expo lint
-npx expo-doctor
-```
+With no Supabase build settings the app opens in an honest **Setup required**
+state. A debug build offers **Explore preview data**, a local repository stored
+in Application Support that is labelled as preview throughout the UI and is not
+a fake backend. Production builds do not offer it.
 
-Launcher and splash assets are generated from the in-app brand mark (arc, crossbar, dot) with `npm run assets:brand`. It writes `assets/icon.png`, favicon, splash, and the Android adaptive foreground/background/monochrome layers.
+Point the app at a project by setting `SUPABASE_URL` and `SUPABASE_ANON_KEY` as
+user-defined Xcode build settings. Only the anon/publishable key belongs in the
+app; it is constrained by RLS.
 
-### Preview mode
+## Backend
 
-Set `EXPO_PUBLIC_DEV_PREVIEW=1` to use the on-device preview repository when no Supabase credentials exist. Preview data lives in AsyncStorage on that device, is labelled as a preview in the UI, and never pretends to be a backend. It is disabled in production builds. Remove the flag or provide Supabase credentials to use the real backend.
+### Schema
 
-## Supabase setup
-
-### 1. Create a project
-
-Create a project at [supabase.com](https://supabase.com). Copy the project URL and anon key into `.env`:
-
-```dotenv
-EXPO_PUBLIC_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
-EXPO_PUBLIC_SUPABASE_ANON_KEY=YOUR-ANON-KEY
-EXPO_PUBLIC_DEV_PREVIEW=0
-```
-
-The anon key is safe to ship in a client; it is constrained by RLS. Never put a service-role key in the app or in any `EXPO_PUBLIC_*` variable.
-
-### 2. Apply the schema
-
-Migrations live in `supabase/migrations/` and must be applied in order:
+Apply the migrations in `supabase/migrations/` in filename order:
 
 | File | Purpose |
 | --- | --- |
-| `0001_forma_schema.sql` | 13 tables, constraints, indexes, triggers |
-| `0002_forma_rls.sql` | Row Level Security policies and grants |
-| `0003_seed_exercises.sql` | 60-exercise catalog (generated) |
-
-With the Supabase CLI:
-
-```bash
-npx supabase login
-npx supabase link --project-ref YOUR-PROJECT-REF
-npx supabase db push
-```
-
-Or paste each file into the SQL editor in filename order. The app also ships the catalog in `src/data/exercises.json`, so the library still renders before the seed is applied, but plans, sets, and history need the seeded `exercise_library` rows because of foreign keys.
-
-After editing `src/data/exercises.json`, regenerate the seed:
+| `0001_forma_schema.sql` | Tables, constraints, indexes, triggers |
+| `0002_forma_rls.sql` | Row Level Security and grants |
+| `0003_seed_exercises.sql` | Exercise catalog seed |
+| `0004_ai_memory_and_realtime.sql` | Conversation summaries, message metadata, exercise provenance, Realtime publication |
+| `0005_ai_knowledge_and_usage.sql` | pgvector, knowledge tables (1536-dim, HNSW, lexical index), `match_knowledge_chunks`, `ai_usage`, private retrieval cache |
 
 ```bash
-npm run seed:exercises
+supabase link --project-ref <your-project-ref>
+supabase db push
 ```
 
-### 3. Configure Auth
-
-- Enable Email provider (email + password).
-- Decide whether email confirmation is required. With confirmation on, the app shows a "check your email" state after sign-up.
-- Add redirect URLs under Authentication → URL Configuration:
-  - `forma://update-password` (production build)
-  - `exp://127.0.0.1:8081/--/update-password` (Expo Go on a simulator)
-  - your LAN `exp://<host>:8081/--/update-password` while testing on a device
-  - the equivalent `http://localhost:8081/update-password` when testing in a browser
-- Set the Site URL to your web URL in production.
-
-Password reset uses `Linking.createURL('/update-password')`, so the redirect must be allow-listed for the reset link to return to the app.
-
-### 4. Deploy the Edge Functions
+### Edge Functions
 
 ```bash
-npx supabase functions deploy coach-chat
-npx supabase functions deploy coach-plan
-npx supabase functions deploy delete-account
-npx supabase secrets set OPENAI_API_KEY=sk-...
-npx supabase secrets set OPENAI_MODEL=gpt-4o-mini   # optional
+supabase functions deploy coach-chat
+supabase functions deploy coach-plan
+supabase functions deploy delete-account
+supabase functions deploy knowledge-ingest
+
+supabase secrets set OPENAI_API_KEY=sk-...
+# optional model routing (defaults shown)
+supabase secrets set OPENAI_MODEL_FAST=gpt-4o-mini
+supabase secrets set OPENAI_MODEL_STANDARD=gpt-4o-mini
+supabase secrets set OPENAI_MODEL_REASONING=gpt-4o
+supabase secrets set OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+# optional live web retrieval
+supabase secrets set WEB_SEARCH_PROVIDER=tavily
+supabase secrets set TAVILY_API_KEY=...
+supabase secrets set KNOWLEDGE_INGEST_SECRET=$(openssl rand -hex 32)
 ```
 
-`SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are provided to deployed functions by Supabase. Do not duplicate them in `.env`.
+`SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are
+injected by the Edge runtime. The OpenAI key exists only as a server secret and
+is never shipped in the app or committed. `supabase/.env.example` lists every
+supported secret and limit.
 
-| Function | Method | Responsibility |
-| --- | --- | --- |
-| `coach-chat` | POST | Verifies the caller, checks conversation ownership, streams a grounded coach reply, persists both messages |
-| `coach-plan` | POST | `generate_plan` builds a 7-day plan from the user's profile, preferences, and catalog; `daily_insight` produces a short factual summary |
-| `delete-account` | POST | Authenticated account deletion via the admin API |
+### Knowledge ingestion
 
-The functions call OpenAI server-side. The client never sees `OPENAI_API_KEY` or the service-role key; only the anon key and the user's JWT are sent.
+The corpus in `supabase/knowledge/forma-coaching-notes.json` is original Forma
+coaching content with publisher, date, licence, trust tier, and topic on every
+document. Real OpenAI embeddings are generated server-side during ingestion.
 
-### 5. Database model
-
-| Table | Notes |
-| --- | --- |
-| `profiles` | One row per user, created by an `auth.users` trigger |
-| `user_preferences` | Training days, session length, equipment, avoid list, units |
-| `exercise_library` | Public read-only catalog |
-| `workout_plans` | One active plan per user (partial unique index) |
-| `workout_days` | Seven rows per plan, including rest days |
-| `workout_exercises` | Ordered prescriptions referencing the catalog |
-| `workout_sessions` | Active, paused, completed, or abandoned sessions |
-| `completed_sets` | Every logged set with reps and load |
-| `exercise_history` | Trigger-maintained per-exercise log for progression |
-| `reminder_settings` | Server copy of reminder preferences |
-| `coach_conversations` | Chat threads |
-| `coach_messages` | User and assistant turns |
-| `progress_records` | Check-ins: bodyweight and notes |
-
-Trigger behavior:
-
-- `handle_new_user` provisions `profiles`, `user_preferences`, and `reminder_settings` on sign-up.
-- `sync_exercise_history` mirrors inserts, updates, and deletes from `completed_sets` into `exercise_history`.
-- `set_updated_at` keeps `profiles`, `user_preferences`, `reminder_settings`, and `coach_conversations` timestamps current.
-
-RLS is enabled on all 13 tables. Every row is scoped to `auth.uid()`; the exercise catalog is readable by `anon` and `authenticated` but writable only by migrations/service role.
-
-## How the app works
-
-- **Onboarding** collects experience, environment, goals, days, session length, equipment, and exercises to skip, then generates a plan locally. If AI is configured, the plan screen offers an AI regeneration path; otherwise the on-device plan remains.
-- **Workout mode** keeps `ActiveWorkout` in AsyncStorage, including elapsed time and rest state, so a restart resumes the same session. Rest supports pause, resume, skip, and +15 seconds; vibration fires when time is up.
-- **History and analytics** are computed only from recorded sessions. Empty states are explicit: no sessions means no streaks, no charts, and no invented numbers.
-- **Recovery** is training guidance derived from recent workload. It is not a readiness score and says so in the UI.
-- **Coach** streams responses. Without a configured backend it shows a setup-required state instead of a canned reply.
-- **Reminders** are local notifications, scheduled only after the OS grants permission. The app stores the notification IDs the OS actually accepted. Web shows an unsupported message rather than pretending to schedule anything.
-- **Profile and settings** edit profile, preferences, units, avoid list, theme, reminders, and account. Destructive account deletion requires typing `DELETE`.
-
-## Security notes
-
-- API keys and service-role keys stay in Supabase secrets.
-- Edge Functions authenticate the caller with `auth.getUser()` and scope queries to the caller (or verify resource ownership).
-- `delete-account` requires a signed-in user with an email identity and refuses anonymous accounts.
-- Coach prompts include safety rules: no diagnosis or prescriptions, stop on pain/dizziness, refer to a professional, conservative loading, and no pressure to train through pain.
-- RLS plus explicit `user_id` columns prevent cross-user reads and writes. Verified with local Postgres tests covering cross-user inserts, updates, catalog writes, and the one-active-plan constraint.
-
-## Project layout
-
+```bash
+FORMA_SUPABASE_URL=https://<ref>.supabase.co \
+FORMA_SUPABASE_ANON_KEY=<anon-key> \
+FORMA_INGEST_SECRET=<the secret above> \
+  node scripts/ingest-knowledge.mjs
 ```
-src/app/              Expo Router routes (tabs, onboarding, workout, settings)
-src/components/       UI primitives, charts, coach, workout components
-src/data/             Types, repositories, exercise catalog
-src/features/         Onboarding and feature-specific components
-src/lib/              Plan generation, AI client, notifications, dates, ids
-src/state/            App and workout providers
-src/theme/            Tokens and theme provider
-supabase/functions/   Deno Edge Functions and shared modules
-supabase/migrations/  Schema, RLS, seed
-scripts/              Seed generator
+
+The script reports documents upserted, chunks stored, and chunks with real
+embeddings, and exits non-zero if any document is rejected. Without embeddings,
+retrieval still works lexically; the script says so explicitly.
+
+## The coach pipeline
+
+`coach-chat` authenticates the caller, enforces per-minute and per-day limits,
+loads a bounded history window (not the whole conversation), resolves short
+follow-ups, classifies intent, and routes to the smallest adequate model tier.
+It then retrieves in parallel from the curated knowledge base and — only when
+current information is requested — a live web provider.
+
+Retrieved passages are treated as untrusted data, screened for instruction
+injection, and cannot override the system rules. The answer streams to the app;
+afterwards the server verifies every URL, citation marker, and exercise ID
+against the sources actually retrieved, performs at most one correction pass,
+removes unverified links, and appends an uncertainty note when a claim cannot be
+tied to a source. `ai_usage` records model, intent, tokens, latency, and status.
+Web results are cached for a short window under a key that contains no user
+identifiers.
+
+`coach-plan` generates a seven-day plan, validates schedule, duration, equipment,
+duplicates, catalog IDs, and volume, and retries with a bounded revision loop.
+The athlete must approve a generated plan in the app before it replaces the
+active one.
+
+## Tests
+
+### Server modules (Node, real shipped TypeScript)
+
+These run under Node, transpile the actual Edge Function sources, and need no
+mocks or credentials:
+
+```bash
+node tests/planValidation.test.mjs   # plan schema, schedule, volume, duplicates
+node tests/aiPipeline.test.mjs       # intent, routing, accuracy, safety, chunking, web filtering
+node tests/retrievalEval.test.mjs    # lexical retrieval quality over the real corpus
 ```
+
+`retrievalEval` reports recall@3 and MRR for the lexical fallback and fails
+below 80% / 0.70. It does not measure pgvector; a vector run requires an
+ingested project and real credentials.
+
+### Native unit tests
+
+```bash
+cd native
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild test -project Forma.xcodeproj -scheme Forma \
+  -destination 'platform=iOS Simulator,id=<device-udid>' \
+  -only-testing:FormaTests
+```
+
+`LiveBackendTests` signs in to a real project and calls the deployed functions.
+They **skip** unless `FORMA_SUPABASE_URL`, `FORMA_ANON_KEY`,
+`FORMA_TEST_EMAIL`, and `FORMA_TEST_PASSWORD` are set. A skip is not evidence
+that the backend works.
+
+### Native UI tests
+
+```bash
+cd native
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild test -project Forma.xcodeproj -scheme Forma \
+  -destination 'platform=iOS Simulator,id=<device-udid>' \
+  -resultBundlePath /tmp/forma-uitests.xcresult
+```
+
+The UI test needs a clean install to exercise the setup screen:
+
+```bash
+xcrun simctl uninstall <device-udid> com.forma.coach
+```
+
+### Live AI evaluation (A–J)
+
+`supabase/knowledge/eval-ai.json` holds ten cases covering the required
+categories. The runner signs in, creates a real conversation, streams real
+replies, checks each case, prints per-category results, and deletes the
+conversation. It spends real model tokens.
+
+```bash
+FORMA_SUPABASE_URL=https://<ref>.supabase.co \
+FORMA_SUPABASE_ANON_KEY=<anon-key> \
+FORMA_TEST_EMAIL=<confirmed-test-user> \
+FORMA_TEST_PASSWORD=<password> \
+  node scripts/eval-ai.mjs
+```
+
+Without those four variables it prints `SKIPPED`, exits with code 3, and states
+that nothing was tested. Use `FORMA_EVAL_CATEGORY`, `FORMA_EVAL_LIMIT`, and
+`FORMA_EVAL_DELAY_MS` to narrow or pace a run.
+
+## Security
+
+- Only the anon key ships in the app. RLS scopes every row to `auth.uid()`.
+- The OpenAI key and service-role key exist only as server secrets.
+- Auth sessions are Keychain-backed and cleared on sign out or account deletion.
+- Health data is read on demand; it is never logged or sent to the coach.
+- Retrieved knowledge and web content is wrapped as untrusted reference data.
+- URLs, citations, and exercise IDs are verified deterministically; unverified
+  links are removed and the UI shows an uncertainty label.
+- The web-retrieval cache is server-only and stores no user data. Conversations,
+  summaries, and private data are never shared across users.
+- When live retrieval is unavailable, the coach says so. It does not present
+  general knowledge as current evidence.
+
+## Verification status
+
+Last verified in this repository:
+
+- TypeScript typecheck of the Edge Function sources: passed.
+- `tests/aiPipeline.test.mjs`: 47 checks passed.
+- `tests/planValidation.test.mjs`: 9 checks passed.
+- `tests/retrievalEval.test.mjs`: recall@3 100% (15/15), MRR 0.900 over the real
+  corpus (lexical fallback; pgvector not measured).
+- `FormaTests`: 34 executed, 2 skipped (`LiveBackendTests`), 0 failures.
+- `FormaUITests`: passed.
+- Debug and Release builds: succeeded.
+- `scripts/eval-ai.mjs`: **SKIPPED** — no live credentials were available. Live
+  OpenAI, Supabase, web retrieval, pgvector, and deployed-function behavior are
+  therefore **not verified** in this checkout.
 
 ## Limitations
 
-- Local notifications work on iOS/Android, not in the browser.
-- Expo web is the verified development surface in this environment; the UI is mobile-first.
-- Edge Functions require Deno to typecheck locally (`deno check supabase/functions/*/index.ts`). Deploying them requires the Supabase CLI.
-- AI features require `OPENAI_API_KEY` and a deployed `coach-chat` / `coach-plan`; until then the UI shows setup-required states.
+- Local notifications only; no push notifications.
+- Realtime requires the project to have it enabled; otherwise the Home header
+  shows **Cached** instead of **Live**.
+- Live web retrieval needs a Tavily or Brave key. Without one the coach
+  discloses that it cannot verify current information.
+- Vector retrieval needs the ingested corpus and a project with pgvector.
+- The Expo prototype in `src/` is legacy and not the shipping client.

@@ -339,23 +339,26 @@ private struct MessageBubble: View {
                                 .strokeBorder(palette.border, lineWidth: 1)
                         }
                     }
+                if !isUser && !message.cards.isEmpty {
+                    CoachCardsView(cards: message.cards)
+                }
                 if !isUser && !message.sources.isEmpty {
                     FlowLayout(spacing: 4, lineSpacing: 4) {
                         ForEach(message.sources) { source in
-                            HStack(spacing: 3) {
-                                Image(systemName: "checkmark.seal")
-                                    .font(.system(size: 8, weight: .semibold))
-                                Text(source.name)
-                                    .font(FormaFont.bodyFont(9.5, weight: .medium))
-                            }
-                            .foregroundStyle(palette.textSecondary)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(palette.surfaceRaised, in: Capsule())
-                            .accessibilityLabel("Source: \(source.name)")
+                            SourceChip(source: source)
                         }
                     }
-                    .frame(maxWidth: 300, alignment: .leading)
+                    .frame(maxWidth: 320, alignment: .leading)
+                }
+                if !isUser && message.unverified {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 9, weight: .semibold))
+                        Text("Some details could not be verified")
+                            .font(FormaFont.bodyFont(9.5, weight: .medium))
+                    }
+                    .foregroundStyle(palette.warning)
+                    .accessibilityLabel("Partially verified answer")
                 }
                 Text(Formatters.time(message.createdAt))
                     .font(FormaFont.bodyFont(9.5))
@@ -365,6 +368,150 @@ private struct MessageBubble: View {
                 Spacer(minLength: 32)
             }
         }
+    }
+}
+
+// MARK: - Sources and cards
+
+private struct SourceChip: View {
+    let source: CoachSource
+    @Environment(\.formaPalette) private var palette
+
+    private var icon: String {
+        if source.isWeb { return "globe" }
+        if source.isKnowledge { return "book.closed" }
+        return "checkmark.seal"
+    }
+
+    private var chip: some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 8, weight: .semibold))
+            Text(source.name)
+                .font(FormaFont.bodyFont(9.5, weight: .medium))
+                .lineLimit(1)
+            if let date = source.publishedAt, !date.isEmpty {
+                Text(date)
+                    .font(FormaFont.bodyFont(8.5))
+                    .foregroundStyle(palette.textTertiary)
+            }
+            if source.url != nil {
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(palette.textTertiary)
+            }
+        }
+        .foregroundStyle(palette.textSecondary)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(palette.surfaceRaised, in: Capsule())
+    }
+
+    var body: some View {
+        if let raw = source.url, let url = URL(string: raw) {
+            Link(destination: url) { chip }
+                .accessibilityLabel(
+                    "Open source: \(source.name)\(source.publishedAt.map { ", published \($0)" } ?? "")"
+                )
+        } else {
+            chip.accessibilityLabel("Source: \(source.name)")
+        }
+    }
+}
+
+private struct CoachCardsView: View {
+    let cards: [CoachCard]
+    @Environment(\.formaPalette) private var palette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(cards) { card in
+                switch card {
+                case .exercise(let exercise): exerciseCard(exercise)
+                case .plan(let plan): planCard(plan)
+                }
+            }
+        }
+        .frame(maxWidth: 330, alignment: .leading)
+    }
+
+    private func exerciseCard(_ exercise: CoachCard.ExerciseCard) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "figure.strengthtraining.traditional")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(palette.accentText)
+                .frame(width: 26, height: 26)
+                .background(palette.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(exercise.name)
+                    .font(FormaFont.bodyFont(11.5, weight: .semibold))
+                    .foregroundStyle(palette.text)
+                    .lineLimit(1)
+                Text(detail(for: exercise))
+                    .font(FormaFont.bodyFont(9.5))
+                    .foregroundStyle(palette.textTertiary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            Text(exercise.difficulty.capitalized)
+                .font(FormaFont.bodyFont(8.5, weight: .medium))
+                .foregroundStyle(palette.textSecondary)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(palette.surface, in: Capsule())
+        }
+        .padding(8)
+        .background(palette.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                .strokeBorder(palette.border, lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(exercise.name), \(detail(for: exercise))")
+    }
+
+    private func detail(for exercise: CoachCard.ExerciseCard) -> String {
+        let muscles = exercise.primaryMuscles.map { $0.replacingOccurrences(of: "-", with: " ") }.joined(separator: ", ")
+        let equipment = exercise.equipment.map { $0.replacingOccurrences(of: "-", with: " ") }.joined(separator: ", ")
+        return [muscles, equipment].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    private func planCard(_ plan: CoachCard.PlanCard) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "calendar")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(palette.accentText)
+                .frame(width: 26, height: 26)
+                .background(palette.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("ACTIVE PLAN")
+                    .font(FormaFont.bodyFont(8, weight: .semibold))
+                    .tracking(0.6)
+                    .foregroundStyle(palette.accentText)
+                Text(plan.name)
+                    .font(FormaFont.bodyFont(11.5, weight: .semibold))
+                    .foregroundStyle(palette.text)
+                    .lineLimit(1)
+                Text(planDetail(plan))
+                    .font(FormaFont.bodyFont(9.5))
+                    .foregroundStyle(palette.textTertiary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(8)
+        .background(palette.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                .strokeBorder(palette.border, lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Active plan \(plan.name), \(planDetail(plan))")
+    }
+
+    private func planDetail(_ plan: CoachCard.PlanCard) -> String {
+        let days = plan.trainingDays > 0 ? plan.trainingDays : plan.daysPerWeek
+        return "\(days) days/week · \(plan.sessionMinutes) min · \(plan.goal.capitalized)"
     }
 }
 

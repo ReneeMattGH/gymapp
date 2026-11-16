@@ -45,6 +45,11 @@ repository that is reset when you exit preview from Profile.
    filename order. Migration `0004_ai_memory_and_realtime.sql` adds conversation
    summaries/message metadata, exercise provenance, and enables Realtime on the
    synced tables — the upgraded functions and the app's live sync require it.
+   Migration `0005_ai_knowledge_and_usage.sql` enables the `vector` extension,
+   adds the curated knowledge tables (1536-dimension embeddings, HNSW index,
+   lexical index, `match_knowledge_chunks`), token usage accounting, and the
+   private web-retrieval cache. pgvector is available on Supabase; on a
+   self-hosted Postgres, install it before applying 0005.
 
 3. **Realtime.** The app subscribes to a per-user channel filtered by `user_id`
    on `workout_plans`, `workout_sessions`, `completed_sets`, `user_preferences`,
@@ -62,16 +67,66 @@ repository that is reset when you exit preview from Profile.
 supabase functions deploy coach-chat
 supabase functions deploy coach-plan
 supabase functions deploy delete-account
+supabase functions deploy knowledge-ingest
+
 supabase secrets set OPENAI_API_KEY=sk-...
-# optional, defaults to gpt-4o-mini
-supabase secrets set OPENAI_MODEL=gpt-4o-mini
+# optional model routing (defaults shown)
+supabase secrets set OPENAI_MODEL_FAST=gpt-4o-mini
+supabase secrets set OPENAI_MODEL_STANDARD=gpt-4o-mini
+supabase secrets set OPENAI_MODEL_REASONING=gpt-4o
+supabase secrets set OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+# optional live web retrieval; without a key the coach discloses that it cannot
+# verify current information and never invents links
+supabase secrets set WEB_SEARCH_PROVIDER=tavily
+supabase secrets set TAVILY_API_KEY=...
+supabase secrets set KNOWLEDGE_INGEST_SECRET=$(openssl rand -hex 32)
 ```
 
 `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are
 provided by the Edge runtime; do not hardcode them. The functions verify the
 caller's JWT, scope every query by user id, and keep the OpenAI key on the
-server only. `delete-account` uses the service role to remove the user's rows
-and the auth user.
+server only. `delete-account` and `knowledge-ingest` use the service role for
+admin operations; ingestion additionally requires the shared secret above.
+`supabase/.env.example` lists every supported secret and limit for local
+`supabase functions serve --env-file supabase/.env`.
+
+### Ingest the curated knowledge base
+
+The corpus in `supabase/knowledge/forma-coaching-notes.json` is original Forma
+coaching content with publisher, date, licence, trust tier, and topic on every
+document. It contains no invented external citations. Real OpenAI embeddings are
+generated during ingestion; nothing is embedded client-side.
+
+```bash
+FORMA_SUPABASE_URL=https://<ref>.supabase.co \
+FORMA_SUPABASE_ANON_KEY=<anon-key> \
+FORMA_INGEST_SECRET=<the secret set above> \
+  node scripts/ingest-knowledge.mjs
+```
+
+The script calls the deployed `knowledge-ingest` function, prints stored/embedded
+counts, and exits non-zero if any document is rejected. Pass `--allow-lexical`
+(or `?allowLexical=true` in the function body) only when intentionally running
+without embeddings; lexical retrieval still works, but vector search does not.
+Embedding dimensions must stay 1536 unless the column and RPC are migrated too.
+
+### How a coach reply is produced
+
+`coach-chat` authenticates the caller, enforces per-minute/per-day usage limits,
+loads a bounded history window (not the entire conversation), resolves short
+follow-ups, classifies intent, routes to the smallest adequate model tier, then
+retrieves in parallel from the curated knowledge base and — only when current
+information is requested — a live web provider. Retrieved passages are treated
+as untrusted data, screened for prompt injection, and never override the system
+rules. The draft streams to the app; afterwards the server verifies every URL,
+citation marker, and exercise ID against the sources actually retrieved, performs
+at most one correction pass, removes unverified links, and appends an explicit
+uncertainty note when a claim could not be tied to a source. Usage rows in
+`ai_usage` record model, intent, tokens, latency, and status.
+
+Web results are cached for a short, configurable window in
+`ai_retrieval_cache`. The cache key is a hash of provider, limit, and query; it
+stores no user identifiers or personal data.
 
 ## 4. Point the app at the project
 
@@ -136,13 +191,38 @@ FORMA_TEST_PASSWORD=<password> \
   xcodebuild test ... -only-testing:FormaTests/LiveBackendTests
 ```
 
-The server plan validator is also exercised directly against its shipped
-TypeScript:
+The server modules are also exercised directly against their shipped
+TypeScript. These run under Node and transpile the real Edge Function sources;
+they do not call a mock API:
 
 ```bash
 cd ..
-node tests/planValidation.test.mjs
+node tests/planValidation.test.mjs   # plan schema, schedule, volume, duplicates
+node tests/aiPipeline.test.mjs       # intent, routing, accuracy, safety, chunking, web filtering
+node tests/retrievalEval.test.mjs    # lexical retrieval quality over the real corpus
 ```
+
+`retrievalEval` prints recall@3 and MRR for the lexical fallback and fails below
+80% / 0.70. It deliberately does **not** claim to measure pgvector; a live vector
+run requires an ingested project and real credentials.
+
+The A–J evaluation dataset lives in `supabase/knowledge/eval-ai.json`. Run it
+against a deployed project with a confirmed test user:
+
+```bash
+FORMA_SUPABASE_URL=https://<ref>.supabase.co \
+FORMA_SUPABASE_ANON_KEY=<anon-key> \
+FORMA_TEST_EMAIL=<confirmed-test-user> \
+FORMA_TEST_PASSWORD=<password> \
+  node scripts/eval-ai.mjs
+```
+
+It signs in, creates a real conversation, streams real replies, checks each
+category, prints per-category results, and deletes the conversation. It spends
+real model tokens. Without the four variables it prints `SKIPPED`, exits with
+code 3, and states that nothing was tested — a skip is not a pass. Use
+`FORMA_EVAL_CATEGORY` or `FORMA_EVAL_LIMIT` to narrow a run, and
+`FORMA_EVAL_DELAY_MS` to pace calls against the per-minute limit.
 
 `FormaUITests` drives the real app end-to-end on a simulator: setup screen,
 preview entry, the seven onboarding steps, plan generation, all five tabs,
@@ -192,3 +272,13 @@ supabase/              Migrations and Edge Functions
 - AI output is validated server-side and client-side: exercises must exist in
   the catalog, loads stay conservative, and pain or medical questions are
   redirected to a professional rather than diagnosed.
+- Retrieved knowledge and web content is wrapped as untrusted reference data and
+  screened for instruction injection before it reaches the model.
+- URLs, citation markers, and exercise IDs in a reply are checked against the
+  sources actually retrieved; unverified links are removed and the athlete sees
+  an uncertainty label instead of a confident fabrication.
+- The web-retrieval cache is server-only and contains public search results, not
+  user data. Conversations, summaries, and private cache entries are never
+  shared across users.
+- When live retrieval is unavailable, the coach says so. It does not present
+  general knowledge as current evidence.

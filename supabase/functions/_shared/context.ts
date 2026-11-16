@@ -1,5 +1,7 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
+import { LIMITS } from './config.ts';
+
 type Row = Record<string, unknown>;
 
 export type TrainingContext = {
@@ -9,7 +11,13 @@ export type TrainingContext = {
   sessions: Row[];
   exerciseHistory: Row[];
   exercises: Row[];
+  today: string;
+  planAgeDays: number | null;
+  planStale: boolean;
+  lastSessionAt: string | null;
+  contextWarnings: string[];
   exerciseName: (id: string) => string;
+  exerciseById: (id: string) => Row | undefined;
   retrieveExercises: (query: string, limit?: number) => Row[];
 };
 
@@ -30,6 +38,12 @@ function asNumber(value: unknown, fallback = 0): number {
 
 function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function daysSince(iso: string): number | null {
+  const time = Date.parse(iso);
+  if (!Number.isFinite(time)) return null;
+  return Math.max(0, Math.floor((Date.now() - time) / 86_400_000));
 }
 
 export async function loadTrainingContext(
@@ -70,15 +84,34 @@ export async function loadTrainingContext(
 
   const exerciseRows = arr(exercises.data);
   const byId = new Map(exerciseRows.map((row) => [asString(row.id), row]));
+  const planRow = (plan.data as Row | null) ?? null;
+  const sessionRows = arr(sessions.data);
+  const planCreated = planRow ? asString(planRow.created_at) : '';
+  const planAgeDays = planCreated ? daysSince(planCreated) : null;
+  const planStale = planAgeDays !== null && planAgeDays > LIMITS.planStaleDays;
+  const lastSessionAt = sessionRows.length > 0 ? asString(sessionRows[0].started_at) || null : null;
+
+  const contextWarnings: string[] = [];
+  if (planStale && planAgeDays !== null) {
+    contextWarnings.push(`The active plan is ${planAgeDays} days old and may no longer match the athlete.`);
+  }
+  if (!planRow) contextWarnings.push('No active plan is stored for this athlete.');
+  if (sessionRows.length === 0) contextWarnings.push('No completed workouts are stored for this athlete.');
 
   return {
     profile: (profile.data as Row | null) ?? null,
     preferences: (preferences.data as Row | null) ?? null,
-    plan: (plan.data as Row | null) ?? null,
-    sessions: arr(sessions.data),
+    plan: planRow,
+    sessions: sessionRows,
     exerciseHistory: arr(exerciseHistory.data),
     exercises: exerciseRows,
+    today: new Date().toISOString().slice(0, 10),
+    planAgeDays,
+    planStale,
+    lastSessionAt,
+    contextWarnings,
     exerciseName: (id: string) => asString(byId.get(id)?.name, id),
+    exerciseById: (id: string) => byId.get(id),
     retrieveExercises: (query: string, limit = 3) => retrieveExercises(exerciseRows, query, limit),
   };
 }
@@ -127,6 +160,14 @@ const STOP_WORDS = new Set([
   'good', 'best', 'better', 'need', 'want', 'about', 'from', 'when', 'where', 'which',
 ]);
 
+export function formatToday(context: TrainingContext): string {
+  const parsed = new Date(`${context.today}T00:00:00Z`);
+  const weekday = Number.isNaN(parsed.getTime())
+    ? ''
+    : WEEKDAY[parsed.getUTCDay() === 0 ? 7 : parsed.getUTCDay()];
+  return `Today (server UTC date): ${context.today}${weekday ? ` (${weekday})` : ''}`;
+}
+
 export function formatProfile(context: TrainingContext): string {
   const profile = context.profile;
   const preferences = context.preferences;
@@ -165,9 +206,10 @@ export function formatProfile(context: TrainingContext): string {
   return lines.join('\n');
 }
 
+/** Current plan plus explicit freshness. Stale plans are never presented as current. */
 export function formatPlan(context: TrainingContext): string {
   const plan = context.plan;
-  if (!plan) return 'No active training plan.';
+  if (!plan) return 'No active training plan. Do not imply one exists.';
 
   const days = arr(plan.days)
     .slice()
@@ -192,11 +234,20 @@ export function formatPlan(context: TrainingContext): string {
     return `${WEEKDAY[weekday] ?? 'Day'}: ${title} — ${exercises.join('; ') || 'no exercises'}`;
   });
 
+  const created = asString(plan.created_at).slice(0, 10);
+  const freshness =
+    context.planAgeDays !== null
+      ? `Plan created: ${created || 'date unknown'} (${context.planAgeDays} days ago)${
+          context.planStale ? ' — STALE: confirm with the athlete before treating it as current.' : ''
+        }`
+      : 'Plan creation date unavailable.';
+
   return [
     `Plan: ${asString(plan.name, 'Training plan')} (goal: ${asString(plan.goal, 'general')}, ${asNumber(
       plan.days_per_week,
       days.filter((day) => !day.is_rest_day).length,
     )} days/week, ${asNumber(plan.session_minutes, 45)} min sessions)`,
+    freshness,
     ...blocks,
   ].join('\n');
 }
@@ -207,9 +258,15 @@ export function formatHistory(context: TrainingContext): string {
     return 'No completed workouts have been recorded for this account. Do not claim to have reviewed workout history; say it is unavailable.';
   }
 
-  return completed
-    .slice(0, 8)
-    .map((session) => {
+  const lastAge = context.lastSessionAt ? daysSince(context.lastSessionAt) : null;
+  const header =
+    lastAge !== null
+      ? `Most recent completed workout: ${context.lastSessionAt?.slice(0, 10)} (${lastAge} days ago).`
+      : 'Most recent workout date unavailable.';
+
+  return [
+    header,
+    ...completed.slice(0, 8).map((session) => {
       const sets = arr(session.sets);
       const volume = sets.reduce((total, set) => {
         const weight = Number(set.weight_kg);
@@ -223,8 +280,8 @@ export function formatHistory(context: TrainingContext): string {
       )} min · ${sets.length} sets${volume > 0 ? ` · ${Math.round(volume)} kg volume` : ''}${
         notes ? ` · notes: ${notes.slice(0, 140)}` : ''
       }`;
-    })
-    .join('\n');
+    }),
+  ].join('\n');
 }
 
 /** Recent per-exercise performance, derived from logged sets. */
@@ -265,8 +322,9 @@ export function formatExerciseHistory(context: TrainingContext): string {
     .join('\n');
 }
 
-export function formatExerciseCatalog(context: TrainingContext): string {
+export function formatExerciseCatalog(context: TrainingContext, limit = 160): string {
   return context.exercises
+    .slice(0, Math.max(1, limit))
     .map((exercise) => {
       const muscles = stringList(exercise.primary_muscles).join('/');
       const equipment = stringList(exercise.equipment).join(', ');
@@ -310,4 +368,23 @@ export function formatRetrievedExercises(rows: Row[], context: TrainingContext):
       return lines.join('\n');
     })
     .join('\n\n');
+}
+
+/**
+ * Trims prompt sections to a character budget without dropping the active plan
+ * or safety-relevant profile. Later sections are shortened first.
+ */
+export function fitContextBudget(sections: { title: string; body: string }[], budget: number): string {
+  let remaining = Math.max(2000, budget);
+  const output: string[] = [];
+  for (const section of sections) {
+    if (!section.body.trim()) continue;
+    const header = `## ${section.title}`;
+    const room = Math.max(0, remaining - header.length - 2);
+    if (room < 120) continue;
+    const body = section.body.length <= room ? section.body : `${section.body.slice(0, room - 24)}\n[section truncated]`;
+    output.push(`${header}\n${body}`);
+    remaining -= header.length + body.length + 2;
+  }
+  return output.join('\n\n');
 }

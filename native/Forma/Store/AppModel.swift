@@ -1269,6 +1269,10 @@ final class AppModel {
                     message: text,
                     onDelta: { [weak self] chunk in
                         self?.streamingText += chunk
+                    },
+                    onRevision: { [weak self] revised in
+                        // The server replaced a draft after citation/safety checks.
+                        self?.streamingText = revised
                     }
                 )
                 try Task.checkCancellation()
@@ -1285,7 +1289,10 @@ final class AppModel {
                         role: .assistant,
                         content: reply.text,
                         createdAt: reply.createdAt,
-                        sources: reply.sources
+                        sources: reply.sources,
+                        cards: reply.cards,
+                        unverified: reply.unverified,
+                        intent: reply.intent
                     )
                 } else {
                     assistant = CoachMessage(
@@ -1295,7 +1302,10 @@ final class AppModel {
                         role: .assistant,
                         content: reply.text,
                         createdAt: reply.createdAt,
-                        sources: reply.sources
+                        sources: reply.sources,
+                        cards: reply.cards,
+                        unverified: reply.unverified,
+                        intent: reply.intent
                     )
                     do {
                         try await repo.addMessage(assistant)

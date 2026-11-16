@@ -45,11 +45,12 @@ async function requestOnce(params: Parameters<typeof openAiChat>[0]): Promise<Re
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: openAiModel(),
+      model: params.model ?? openAiModel(),
       messages: params.messages,
       temperature: params.temperature ?? 0.6,
       max_tokens: params.maxTokens ?? 700,
       stream: Boolean(params.stream),
+      ...(params.stream ? { stream_options: { include_usage: true } } : {}),
       ...(params.json ? { response_format: { type: 'json_object' } } : {}),
     }),
     signal: withTimeout(timeoutMs, params.signal),
@@ -65,14 +66,32 @@ export async function openAiChat(params: {
   signal?: AbortSignal;
   timeoutMs?: number;
   retries?: number;
+  /** Explicit model from the router. Falls back to OPENAI_MODEL. */
+  model?: string;
+  /** Tried once if the provider says the configured model does not exist. */
+  fallbackModel?: string;
 }): Promise<Response> {
   const retries = Math.max(0, Math.min(params.retries ?? 2, 3));
+  let model = params.model ?? openAiModel();
+  let usedFallback = false;
+  let attempt = 0;
   let lastError: unknown = null;
 
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
+  while (attempt <= retries) {
     if (params.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     try {
-      const response = await requestOnce(params);
+      const response = await requestOnce({ ...params, model });
+
+      if (response.status === 404 && !usedFallback && params.fallbackModel && params.fallbackModel !== model) {
+        await response.body?.cancel().catch(() => {});
+        console.warn('configured model unavailable; retrying once with the fallback model');
+        model = params.fallbackModel;
+        usedFallback = true;
+        continue;
+      }
+      if (response.status === 404) {
+        return response;
+      }
       if (!RETRYABLE_STATUS.has(response.status) || attempt === retries) return response;
 
       // Drain the failed body so the connection can be reused.
@@ -82,11 +101,13 @@ export async function openAiChat(params: {
         ? retryAfter * 1000
         : 600 * 2 ** attempt + Math.floor(Math.random() * 250);
       await delay(Math.min(backoff, 8_000), params.signal);
+      attempt += 1;
     } catch (error) {
       if (params.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
       lastError = error;
       if (attempt === retries) throw error;
       await delay(600 * 2 ** attempt + Math.floor(Math.random() * 250), params.signal);
+      attempt += 1;
     }
   }
 

@@ -1,14 +1,5 @@
 import Foundation
 
-private struct CoachStreamEvent: Decodable {
-    var type: String
-    var text: String?
-    var message: String?
-    var messageId: String?
-    var createdAt: String?
-    var sources: [CoachSource]?
-}
-
 private struct PlanResponse: Decodable {
     var plan: AIPlanPayload?
     var error: String?
@@ -31,6 +22,27 @@ struct CoachReply: Sendable {
     var messageId: String?
     var createdAt: Date
     var sources: [CoachSource]
+    var cards: [CoachCard]
+    var unverified: Bool
+    var intent: String?
+
+    init(
+        text: String,
+        messageId: String?,
+        createdAt: Date,
+        sources: [CoachSource],
+        cards: [CoachCard] = [],
+        unverified: Bool = false,
+        intent: String? = nil
+    ) {
+        self.text = text
+        self.messageId = messageId
+        self.createdAt = createdAt
+        self.sources = sources
+        self.cards = cards
+        self.unverified = unverified
+        self.intent = intent
+    }
 }
 
 enum CoachStreamFailure: LocalizedError {
@@ -130,7 +142,8 @@ final class AICoachService {
     func streamReply(
         conversationId: String,
         message: String,
-        onDelta: @escaping (String) -> Void
+        onDelta: @escaping (String) -> Void,
+        onRevision: ((String) -> Void)? = nil
     ) async throws -> CoachReply {
         let received = DeltaFlag()
         var attempt = 0
@@ -142,7 +155,8 @@ final class AICoachService {
                     onDelta: { text in
                         received.value = true
                         onDelta(text)
-                    }
+                    },
+                    onRevision: onRevision
                 )
             } catch is CancellationError {
                 throw CancellationError()
@@ -169,7 +183,8 @@ final class AICoachService {
     private func performStream(
         conversationId: String,
         message: String,
-        onDelta: @escaping (String) -> Void
+        onDelta: @escaping (String) -> Void,
+        onRevision: ((String) -> Void)?
     ) async throws -> CoachReply {
         guard let base = tokens.functionsURL else { throw FormaError.notConfigured }
         let token = try await tokens.accessToken()
@@ -209,48 +224,68 @@ final class AICoachService {
                 throw CoachStreamFailure.message("The coach returned an empty reply. Please try again.")
             }
             onDelta(reply)
-            return CoachReply(text: reply, messageId: nil, createdAt: Date(), sources: [])
+            return CoachReply(
+                text: reply,
+                messageId: nil,
+                createdAt: Date(),
+                sources: [],
+                cards: [],
+                unverified: false,
+                intent: nil
+            )
         }
 
         var full = ""
         var finished = false
         var sources: [CoachSource] = []
+        var cards: [CoachCard] = []
+        var unverified = false
+        var intent: String?
         var messageId: String?
         var createdAt: Date?
+        var parser = CoachStreamParser()
 
         for try await rawLine in bytes.lines {
             if Task.isCancelled { throw CancellationError() }
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            guard line.hasPrefix("data:") else { continue }
-            let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
-            if payload.isEmpty || payload == "[DONE]" {
+            switch parser.consume(line: rawLine) {
+            case .ignore:
+                continue
+            case .done:
                 finished = true
-                break
-            }
-            guard let data = payload.data(using: .utf8),
-                  let event = try? JSONDecoder().decode(CoachStreamEvent.self, from: data) else { continue }
-
-            switch event.type {
-            case "meta":
-                sources = event.sources ?? []
-            case "delta":
-                if let text = event.text, !text.isEmpty {
-                    full += text
-                    onDelta(text)
+            case .event(let event):
+                switch event.type {
+                case "meta":
+                    sources = event.sources ?? sources
+                    cards = event.cards ?? cards
+                    unverified = event.unverified ?? false
+                    intent = event.intent
+                case "revision":
+                    if let text = event.text, !text.isEmpty {
+                        full = text
+                        onRevision?(text)
+                    }
+                case "delta":
+                    if let text = event.text, !text.isEmpty {
+                        full += text
+                        onDelta(text)
+                    }
+                case "blocked":
+                    throw CoachStreamFailure.blocked(
+                        event.message ?? "That draft response did not meet Forma's safety standards."
+                    )
+                case "error":
+                    throw CoachStreamFailure.message(event.message ?? "The coach ran into a problem.")
+                case "done":
+                    messageId = event.messageId
+                    createdAt = event.createdAt.flatMap(FormaDate.parse)
+                    if let eventSources = event.sources { sources = eventSources }
+                    if let eventCards = event.cards { cards = eventCards }
+                    unverified = event.unverified ?? unverified
+                    intent = event.intent ?? intent
+                    finished = true
+                default:
+                    break
                 }
-            case "blocked":
-                throw CoachStreamFailure.blocked(
-                    event.message ?? "That draft response did not meet Forma's safety standards."
-                )
-            case "error":
-                throw CoachStreamFailure.message(event.message ?? "The coach ran into a problem.")
-            case "done":
-                messageId = event.messageId
-                createdAt = event.createdAt.flatMap(FormaDate.parse)
-                if let eventSources = event.sources { sources = eventSources }
-                finished = true
-            default:
-                break
             }
             if finished { break }
         }
@@ -263,7 +298,10 @@ final class AICoachService {
             text: text,
             messageId: messageId,
             createdAt: createdAt ?? Date(),
-            sources: sources
+            sources: sources,
+            cards: cards,
+            unverified: unverified,
+            intent: intent
         )
     }
 

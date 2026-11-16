@@ -622,9 +622,16 @@ final class SupabaseService: FormaRepository, AuthProviding, AITokenProviding {
                         CoachSource(
                             id: $0.id,
                             name: $0.name,
-                            category: $0.category ?? "strength"
+                            category: $0.category ?? "strength",
+                            kind: $0.kind ?? "exercise",
+                            url: $0.url,
+                            publishedAt: $0.publishedAt,
+                            publisher: $0.publisher
                         )
-                    }
+                    },
+                    cards: $0.metadata?.cards ?? [],
+                    unverified: $0.metadata?.unverified ?? false,
+                    intent: $0.metadata?.intent
                 )
             }
         } catch {
@@ -641,7 +648,12 @@ final class SupabaseService: FormaRepository, AuthProviding, AITokenProviding {
                 role: message.role.rawValue,
                 content: message.content,
                 created_at: FormaDate.string(message.createdAt),
-                metadata: MessageMetadataInsert(sources: message.sources)
+                metadata: MessageMetadataInsert(
+                    sources: message.sources,
+                    cards: message.cards,
+                    unverified: message.unverified,
+                    intent: message.intent
+                )
             )).execute()
         } catch {
             throw Self.mapError(error)
@@ -886,10 +898,17 @@ private struct MessageRow: Decodable {
         var id: String
         var name: String
         var category: String?
+        var kind: String?
+        var url: String?
+        var publishedAt: String?
+        var publisher: String?
     }
 
     struct Metadata: Decodable {
         var sources: [Source]?
+        var cards: [CoachCard]?
+        var unverified: Bool?
+        var intent: String?
     }
 
     var id: String
@@ -1042,12 +1061,32 @@ private struct MessageMetadataInsert: Encodable {
         var id: String
         var name: String
         var category: String
+        var kind: String
+        var url: String?
+        var publishedAt: String?
+        var publisher: String?
     }
 
     var sources: [Source]
+    var cards: [CoachCard]
+    var unverified: Bool
+    var intent: String?
 
-    init(sources: [CoachSource]) {
-        self.sources = sources.map { Source(id: $0.id, name: $0.name, category: $0.category) }
+    init(sources: [CoachSource], cards: [CoachCard], unverified: Bool, intent: String?) {
+        self.sources = sources.map {
+            Source(
+                id: $0.id,
+                name: $0.name,
+                category: $0.category,
+                kind: $0.kind,
+                url: $0.url,
+                publishedAt: $0.publishedAt,
+                publisher: $0.publisher
+            )
+        }
+        self.cards = cards
+        self.unverified = unverified
+        self.intent = intent
     }
 }
 

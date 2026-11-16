@@ -1,0 +1,169 @@
+{
+  "documents": [
+    {
+      "slug": "progressive-overload-basics",
+      "title": "Progressive overload without guesswork",
+      "publisher": "Forma coaching team",
+      "publishedAt": "2026-11-16",
+      "license": "Original Forma coaching content",
+      "trust": "reputable",
+      "topic": "programming",
+      "summary": "How to progress load, reps, sets, and quality with simple rules and honest limits.",
+      "content": "Progressive overload means asking the body to do slightly more over time. It does not mean adding weight every session. A useful order of progression is: first improve technique and range of motion, then add reps within the planned range, then add load while keeping the same reps, and finally add a set when the weekly plan can absorb it.\n\nA practical rule for double progression is the 2-for-2 rule. When you can complete two more reps than the top of your target range on two consecutive sessions, increase the load by the smallest available increment and return to the bottom of the range. For upper-body pressing this might be 1–2.5 kg; for lower-body work it might be 2.5–5 kg. Small jumps preserve form and make progress easier to repeat.\n\nEffort matters. Most working sets should finish with about one to three reps in reserve: you could have done a few more clean reps. Grinding every set to failure adds fatigue and makes weekly volume harder to recover from. Keep high-effort sets rare and planned.\n\nWhen progress stalls for two or three weeks, do not automatically add more volume. Check sleep, food intake, stress, and whether you actually performed the planned sessions. A small reduction in volume followed by a gradual rebuild often works better than piling on sets. Record what you did so the next decision is based on data rather than memory."
+    },
+    {
+      "slug": "beginner-full-body-frequency",
+      "title": "Beginner full-body training: frequency and dose",
+      "publisher": "Forma coaching team",
+      "publishedAt": "2026-11-16",
+      "license": "Original Forma coaching content",
+      "trust": "reputable",
+      "topic": "programming",
+      "summary": "Why beginners usually do well on two or three full-body sessions per week and how to keep them simple.",
+      "content": "Beginners usually make excellent progress with two or three full-body sessions per week. Training each major movement pattern two or three times per week provides frequent practice without requiring high per-session volume. This frequency also gives more chances to refine technique while fatigue is still manageable.\n\nA simple session can include a squat pattern, a hinge, a horizontal push, a horizontal pull, a vertical push or pull, and a core or carry. Two to three sets of each are usually enough at the start. Repetitions in the six-to-fifteen range are practical because they allow enough practice to learn the movement without excessive load.\n\nKeep exercise selection stable for at least four to six weeks. Changing exercises every session makes it impossible to tell whether you are improving. Add load gradually and use the 2-for-2 progression rule rather than chasing a personal record every week.\n\nRecovery is part of the program. Two full-body days with at least one rest day between them is easier to recover from than three consecutive days. If sleep is short or stress is high, reduce a set or keep the same load instead of forcing progress. Beginners do not need advanced techniques such as drop sets, clusters, or frequent max-effort work to build a base."
+    },
+    {
+      "slug": "rest-between-sets",
+      "title": "How long to rest between sets",
+      "publisher": "Forma coaching team",
+      "publishedAt": "2026-11-16",
+      "license": "Original Forma coaching content",
+      "trust": "reputable",
+      "topic": "programming",
+      "summary": "Practical rest ranges and how to adjust them for compound, isolation, and conditioning work.",
+      "content": "Rest between sets is a tool, not a rule to obey rigidly. For compound strength work such as squats, deadlifts, presses, and rows, two to three minutes is a practical default. This is long enough to restore most of your ability to produce force and short enough to keep the session moving. If the next set would clearly lose technique or several reps, rest longer.\n\nFor isolation work such as curls, lateral raises, and calf raises, sixty to ninety seconds is usually enough. For higher-rep conditioning circuits, shorter rest may be appropriate, but the quality of the reps still matters more than the clock.\n\nA simple way to individualise rest is to watch rep quality. If your planned eight reps turn into five sloppy reps, the rest was too short or the load was too high. If you feel fully recovered and are simply waiting because the timer says so, shorten the rest.\n\nDo not use extremely short rest as a way to make light weight feel hard. That trains fatigue tolerance more than strength. Match the rest to the goal: longer for heavy compound work, shorter for isolation and conditioning. Write the intended rest into the plan so sessions stay consistent."
+    },
+    {
+      "slug": "warm-up-structure",
+      "title": "A warm-up that prepares the session",
+      "publisher": "Forma coaching team",
+      "publishedAt": "2026-11-16",
+      "license": "Original Forma coaching content",
+      "trust": "reputable",
+      "topic": "recovery",
+      "summary": "General and specific warm-up steps that raise temperature and rehearse the day's movements.",
+      "content": "A useful warm-up has two parts: general preparation and specific rehearsal. General preparation raises body temperature and heart rate. Five to ten minutes of easy cycling, brisk walking, rowing, or skipping is enough for most people. The goal is to feel warm and ready, not tired.\n\nSpecific rehearsal prepares the joints and movement patterns you are about to train. Use a few controlled repetitions of the first exercise with an empty bar or light load, then build in small steps toward the working weight. For a squat day, that might mean bodyweight squats, then a light set, then a moderate set before the first work set. For an upper-body day, add shoulder and scapular control work if those areas feel stiff.\n\nDynamic mobility can be part of the rehearsal. Controlled leg swings, hip openers, thoracic rotations, and ankle rocks are examples. Static stretching is better placed after training when the goal is relaxation or range of motion, because long holds before heavy work can temporarily reduce force output.\n\nThe warm-up should not become a workout. If it leaves you sweaty and fatigued before the first work set, reduce it. People training in a cold environment or early in the morning may need a little more general preparation; people in a warm environment may need less. Adjust to how you feel and to the session ahead."
+    },
+    {
+      "slug": "strength-versus-hypertrophy-reps",
+      "title": "Strength versus hypertrophy: what rep ranges actually do",
+      "publisher": "Forma coaching team",
+      "publishedAt": "2026-11-16",
+      "license": "Original Forma coaching content",
+      "trust": "reputable",
+      "topic": "programming",
+      "summary": "Rep ranges overlap in effect; effort, load, and total volume matter more than a magic number.",
+      "content": "Strength and muscle growth are related but not identical goals. Heavy loads in the one-to-five rep range are practical for developing maximal strength because they require high force production and allow lots of practice with heavy weight. Moderate loads in the six-to-twelve range are convenient for building muscle because they provide a good balance of mechanical tension and manageable fatigue. Higher-rep sets in the fifteen-to-thirty range can also build muscle when sets are taken close enough to failure, but they often create more local discomfort and cardiorespiratory fatigue.\n\nThe rep range is not a switch. A set of five taken to genuine failure and a set of twenty taken to genuine failure both provide a strong growth stimulus. The practical difference is how much fatigue they create and how well they fit the rest of the week. Most people do best with a mix: some heavier work for strength, some moderate work for volume, and a small amount of higher-rep work for joints and work capacity.\n\nEffort is the ingredient people forget. A set of ten with ten reps in reserve is mostly practice; a set of ten with two reps in reserve is a real training stimulus. Use a repeatable effort target such as one to three reps in reserve for most sets, and save true failure for isolated exercises or occasional planned tests.\n\nDo not change the rep range every week. Pick ranges that match the goal and the exercise, then progress within them. Consistency makes the effect of the program measurable."
+    },
+    {
+      "slug": "recovery-between-sessions",
+      "title": "Recovery between sessions",
+      "publisher": "Forma coaching team",
+      "publishedAt": "2026-11-16",
+      "license": "Original Forma coaching content",
+      "trust": "reputable",
+      "topic": "recovery",
+      "summary": "Practical recovery guidance: sleep, spacing, soreness, and when to reduce load.",
+      "content": "Recovery is the process that turns training into adaptation. The most reliable inputs are sleep, enough food and fluid, and sensible spacing between hard sessions. Most people recover well from training the same muscle group roughly every forty-eight to seventy-two hours. That is a general guide, not a rule; beginners and older athletes may need more, while experienced athletes may tolerate more frequent low-fatigue sessions.\n\nSoreness is not a reliable measure of a good workout. New exercises and higher volume often cause soreness even when the session was not especially productive. Conversely, a useful session can leave little soreness. Use performance instead: if your usual reps at a given load are dropping for several sessions, or your joints feel irritated, reduce volume or load for a week.\n\nSleep is the highest-leverage recovery tool. A consistent schedule and a dark, cool room matter more than most supplements. If sleep is short for several nights, keep training but reduce the number of hard sets rather than adding stimulants to push through.\n\nA deload is a planned reduction in training stress, usually every four to eight weeks or when performance and mood decline together. Reduce volume by roughly a third to a half while keeping some movement practice. Do not stop training completely unless advised by a clinician. If pain is sharp, joint-related, or worsening, stop the aggravating exercise and seek professional assessment rather than trying to train through it."
+    },
+    {
+      "slug": "plateau-checklist",
+      "title": "A plateau checklist before adding volume",
+      "publisher": "Forma coaching team",
+      "publishedAt": "2026-11-16",
+      "license": "Original Forma coaching content",
+      "trust": "reputable",
+      "topic": "programming",
+      "summary": "Check adherence, sleep, food, exercise selection, and measurement before changing the program.",
+      "content": "A plateau is a period where performance stops improving despite continued training. Before adding sets or changing the program, check the boring inputs. Did you complete the planned sessions? Has sleep changed? Are you eating enough to support the goal? Has body weight moved in a direction that conflicts with the goal? A single missed week is not a plateau.\n\nNext, check the measurement. Small strength changes are hard to see if exercises, rep ranges, rest, and technique change every week. Keep the main lifts stable for a block of four to six weeks and track the same set-and-rep target. A one-rep improvement at the same effort is progress.\n\nIf adherence and measurement are solid, make one change at a time. Options include adding one set to a lagging muscle group, increasing load slightly on the main lift, improving sleep, or reducing non-training stress. Give the change three to four weeks before judging it. Changing five variables at once makes it impossible to know what worked.\n\nSometimes the right answer is a deload rather than more work. If performance, mood, and sleep are all declining, reduce training stress for a week. If the plateau is specific to one exercise, rotate to a similar movement for a block while keeping the training goal the same. Do not chase novelty for its own sake."
+    },
+    {
+      "slug": "home-equipment-substitutions",
+      "title": "Substituting exercises with limited equipment",
+      "publisher": "Forma coaching team",
+      "publishedAt": "2026-11-16",
+      "license": "Original Forma coaching content",
+      "trust": "reputable",
+      "topic": "programming",
+      "summary": "How to replace gym movements with dumbbells, bands, and bodyweight without losing the training goal.",
+      "content": "When equipment is limited, substitute by movement pattern rather than by exercise name. A squat pattern can be trained with goblet squats, split squats, step-ups, or bodyweight squats. A hinge can be trained with dumbbell Romanian deadlifts, single-leg hinges, or hip bridges. A horizontal push can be a push-up variation; a horizontal pull can be a band row, table row, or dumbbell row. A vertical push can be a dumbbell overhead press; a vertical pull can be a band pulldown or assisted pull-up if you have a bar.\n\nMatch the substitute to the goal and to your skill level. If the original exercise was heavy and low-rep, choose a substitute that lets you load it enough to stay in a similar effort range. If the original was a higher-rep isolation movement, a band or bodyweight version may be enough. Do not pretend a light band is equivalent to a heavy machine; adjust reps, tempo, or single-leg variations to make the set challenging.\n\nBodyweight exercises can be progressed by changing leverage, range of motion, tempo, or unilateral stance. A push-up can move from incline to floor to feet-elevated. A split squat can progress from assisted to unassisted to elevated front foot. These changes are real progressions even when the load does not change.\n\nIf an exercise causes joint discomfort, choose a different variation rather than pushing through it. Substitutions are not failures; they are how a program stays usable when life changes."
+    },
+    {
+      "slug": "rpe-autoregulation",
+      "title": "Using RPE to adjust a session honestly",
+      "publisher": "Forma coaching team",
+      "publishedAt": "2026-11-16",
+      "license": "Original Forma coaching content",
+      "trust": "reputable",
+      "topic": "programming",
+      "summary": "A simple explanation of reps in reserve and how to use effort ratings without turning them into guesswork.",
+      "content": "Rating of perceived exertion, or RPE, is a way to describe how hard a set felt. A common scale ties RPE to reps in reserve: RPE 10 means no reps left, RPE 9 means about one rep left, RPE 8 means about two reps left, and so on. The value is not perfect, but it helps you adjust when sleep, stress, or recovery differ from the plan.\n\nUse RPE as a guide, not an excuse to avoid effort. If the plan says three sets of eight at RPE 8, choose a load that leaves roughly two clean reps in the tank on the first set. If the first set feels much harder than expected, reduce the load for the next set rather than grinding and losing technique. If it feels much easier, add a small amount of load.\n\nBeginners often underestimate how many reps they have left because they are still learning the movement. For the first few months, use a simple instruction such as stop two reps before you think you would fail, and compare that with video or a coach's feedback. Experienced lifters can use RPE more precisely, but everyone should anchor it to actual performance data.\n\nDo not use RPE to turn every session into a max-effort test. Most sets should sit around RPE 7 to 8, with occasional sets at RPE 9. Frequent RPE 10 work adds fatigue and makes the next session harder to plan. The goal is consistent, repeatable training, not a daily hero effort."
+    },
+    {
+      "slug": "mobility-and-stretching",
+      "title": "Mobility work that supports training",
+      "publisher": "Forma coaching team",
+      "publishedAt": "2026-11-16",
+      "license": "Original Forma coaching content",
+      "trust": "reputable",
+      "topic": "recovery",
+      "summary": "Dynamic preparation, controlled range work, and static stretching placed where they help most.",
+      "content": "Mobility work is most useful when it supports the movements you actually train. Before a session, use controlled dynamic movements through the range you need: hip openers before squats, thoracic rotations before overhead pressing, ankle rocks before lunges, and shoulder circles before pulling. A few minutes is usually enough. The goal is to feel prepared, not to achieve a new range of motion in five minutes.\n\nDuring training, use full but controlled range of motion on the exercises you have chosen. If you cannot reach a position without compensating, reduce the load or choose a variation you can control. For example, elevate the heels slightly for a squat if ankle range limits depth, or use a neutral-grip press if shoulder position is uncomfortable. These are setup changes, not failures.\n\nStatic stretching is better after training or in a separate session when the goal is relaxation or longer-term range. Long holds before heavy lifting can temporarily reduce force output. Gentle holds of twenty to forty-five seconds, repeated a few times, are a reasonable starting point. Do not force a stretch into sharp pain.\n\nMobility is not a cure for every ache. If range of motion is limited by pain, swelling, or a recent injury, stop and get an assessment from a qualified professional. General mobility work can support training, but it is not a diagnosis or treatment."
+    },
+    {
+      "slug": "cardio-and-strength-order",
+      "title": "Combining cardio and strength training",
+      "publisher": "Forma coaching team",
+      "publishedAt": "2026-11-16",
+      "license": "Original Forma coaching content",
+      "trust": "reputable",
+      "topic": "programming",
+      "summary": "How to order and space aerobic work so it supports rather than blunts strength sessions.",
+      "content": "Cardio and strength training can coexist. The main practical issue is fatigue: hard aerobic work before lifting can reduce force output and make technique harder to control, and hard lifting before cardio can make intervals feel harder. When strength is the priority, put the strength session first or separate the two by several hours. When endurance is the priority, the opposite order may be appropriate.\n\nFor general health, moderate aerobic work such as brisk walking, easy cycling, or steady rowing can be done on separate days or after lifting. It should leave you able to hold a conversation. This kind of work supports recovery and does not usually interfere much with strength progress.\n\nHigh-intensity intervals are more demanding. Two sessions per week is a reasonable starting point for many people, spaced away from the hardest lower-body strength sessions. Doing intervals the day before a heavy squat session can make that session feel worse, so plan the week rather than stacking hard work on consecutive days.\n\nMore is not always better. If strength is stalling and cardio volume is rising at the same time, reduce one of them for a few weeks and see what changes. Track both sessions so you can make that decision from evidence rather than guesswork. If you have a heart or lung condition, get medical clearance before starting hard aerobic training."
+    },
+    {
+      "slug": "pain-during-training",
+      "title": "What to do when an exercise hurts",
+      "publisher": "Forma coaching team",
+      "publishedAt": "2026-11-16",
+      "license": "Original Forma coaching content",
+      "trust": "reputable",
+      "topic": "safety",
+      "summary": "A conservative, non-diagnostic response to pain during training.",
+      "content": "Pain during training is information, not a challenge to overcome. Stop the exercise if the pain is sharp, sudden, joint-related, radiating, or getting worse with each rep. Do not try to train through it. A mild sensation that settles quickly and does not change your movement may be acceptable for some people, but sharp or worsening pain is a reason to stop.\n\nChange one variable to see whether the movement can be made comfortable: reduce the load, reduce the range of motion, change the angle, or choose a different variation. If the pain persists with simple adjustments, leave that exercise out for the day. Do not add heat, ice, medication, or a brace as a substitute for assessment if the problem is recurring.\n\nSeek advice from a qualified clinician if the pain follows an injury, is severe, is accompanied by numbness, weakness, dizziness, chest pain, or shortness of breath, or does not improve with rest. Forma can share general training principles, but it cannot diagnose a condition or prescribe treatment.\n\nWhen you return to training, start with a variation you can perform comfortably and build gradually. A short period of reduced load is usually more productive than forcing the original exercise and losing more time. Record what happened so a clinician or coach can see the pattern."
+    },
+    {
+      "slug": "deload-week",
+      "title": "Planning a deload week",
+      "publisher": "Forma coaching team",
+      "publishedAt": "2026-11-16",
+      "license": "Original Forma coaching content",
+      "trust": "reputable",
+      "topic": "recovery",
+      "summary": "When and how to reduce training stress for a week without losing progress.",
+      "content": "A deload is a planned reduction in training stress. It is useful when performance, sleep, mood, and motivation are declining together, or after a block of unusually hard training. It is not a sign that you are weak; it is a way to let accumulated fatigue settle so adaptation can show.\n\nA simple deload keeps the same exercises and movement patterns but reduces volume by roughly a third to a half. For example, if you normally do four sets of squats, do two or three. Keep the load moderate and stop well short of failure. Some people prefer to keep the load the same and reduce sets; others prefer to reduce load and keep the sets. Either approach can work. The important part is that the week feels easier.\n\nDo not replace the deload with a week of random hard activities. A long hike, a race, or a new sport can add stress rather than reduce it. Keep some easy movement, sleep well, and eat normally. If you feel refreshed after a few days, you do not need to extend the deload just because it was planned.\n\nSchedule deloads every four to eight weeks for most intermediate trainees, or when the checklist suggests it. Beginners may not need a formal deload for several months if sessions are moderate. Anyone with a medical condition or ongoing pain should get individual advice rather than following a generic template."
+    },
+    {
+      "slug": "general-nutrition-for-training",
+      "title": "General nutrition principles for training",
+      "publisher": "Forma coaching team",
+      "publishedAt": "2026-11-16",
+      "license": "Original Forma coaching content",
+      "trust": "reputable",
+      "topic": "nutrition",
+      "summary": "Non-prescriptive guidance on energy, protein, hydration, and avoiding extreme approaches.",
+      "content": "Nutrition supports training, but individual needs vary. A useful starting point is to eat enough to support the goal and to keep meals reasonably consistent. For muscle gain, a small energy surplus is usually enough; for fat loss, a moderate deficit is more sustainable than an aggressive one. Extreme deficits often reduce training quality, sleep, and mood, and they are not a shortcut to better results.\n\nProtein is important for repairing and building tissue. Many active people do well with a source of protein at each main meal. Total daily amount matters more than perfect timing, though eating some protein around training is practical. Carbohydrates support hard training and are especially useful before and after longer or higher-volume sessions. Fats support hormones and overall health; very low-fat diets are rarely necessary.\n\nHydration is simple: drink enough that urine is pale, and replace fluids after long or hot sessions. Electrolytes may matter for very long or very sweaty exercise, but they are not a substitute for food and water in normal training.\n\nSupplements are not required for progress. A small number have evidence for specific uses, but the basics are sleep, food, and consistent training. Do not take medication, steroids, or high-dose stimulants based on an app's advice. If you have a medical condition, are pregnant, or have a history of disordered eating, work with a qualified professional rather than following a generic plan."
+    },
+    {
+      "slug": "travel-minimal-equipment",
+      "title": "Training with minimal equipment while travelling",
+      "publisher": "Forma coaching team",
+      "publishedAt": "2026-11-16",
+      "license": "Original Forma coaching content",
+      "trust": "reputable",
+      "topic": "programming",
+      "summary": "A simple way to keep training consistent with bodyweight, bands, or a single pair of dumbbells.",
+      "content": "Travel does not have to mean a training gap. Choose a small number of movement patterns and use what is available: bodyweight, a resistance band, a single dumbbell, or a hotel gym. A full-body session can include a squat variation, a hinge, a push, a pull, a carry, and a core exercise. Two or three sets of each is enough to maintain most of your progress for a short trip.\n\nBodyweight progressions can be made harder without equipment. Elevate the feet for push-ups, slow the lowering phase, pause at the bottom, or use a single-leg variation for squats and hinges. A band can add resistance to rows, presses, and lateral work. If you have one dumbbell, use it for goblet squats, rows, presses, and carries, and adjust reps to make the set challenging.\n\nKeep the effort moderate if you are also walking a lot or sleeping poorly. The goal during travel is usually maintenance, not a personal record. A short session is better than no session, and a twenty-minute full-body routine can preserve the habit.\n\nWhen you return home, do not jump straight back to your previous volume. Start with a slightly reduced week and rebuild. This reduces unnecessary soreness and makes the transition back to your normal plan easier."
+    }
+  ]
+}

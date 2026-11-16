@@ -1,0 +1,80 @@
+{
+  "description": "Retrieval evaluation queries for the Forma coaching corpus. Each query has the document slug that a correct retrieval result should surface. The offline test measures the lexical fallback; vector retrieval uses the same queries once embeddings are ingested and credentials exist.",
+  "queries": [
+    {
+      "id": "r01",
+      "query": "How do I apply progressive overload without guessing?",
+      "expectedSlug": "progressive-overload-basics"
+    },
+    {
+      "id": "r02",
+      "query": "How many full body days per week should a beginner train?",
+      "expectedSlug": "beginner-full-body-frequency"
+    },
+    {
+      "id": "r03",
+      "query": "How long should I rest between sets for strength?",
+      "expectedSlug": "rest-between-sets"
+    },
+    {
+      "id": "r04",
+      "query": "What should a warm-up include before lifting?",
+      "expectedSlug": "warm-up-structure"
+    },
+    {
+      "id": "r05",
+      "query": "Is 5 reps better for strength than 12 reps for muscle?",
+      "expectedSlug": "strength-versus-hypertrophy-reps"
+    },
+    {
+      "id": "r06",
+      "query": "How long does recovery between sessions take?",
+      "expectedSlug": "recovery-between-sessions"
+    },
+    {
+      "id": "r07",
+      "query": "My lifts stalled; should I add volume or check recovery first?",
+      "expectedSlug": "plateau-checklist"
+    },
+    {
+      "id": "r08",
+      "query": "How can I replace exercises with home equipment?",
+      "expectedSlug": "home-equipment-substitutions"
+    },
+    {
+      "id": "r09",
+      "query": "How do I use RPE to adjust a session?",
+      "expectedSlug": "rpe-autoregulation"
+    },
+    {
+      "id": "r10",
+      "query": "What mobility work supports training?",
+      "expectedSlug": "mobility-and-stretching"
+    },
+    {
+      "id": "r11",
+      "query": "Should I do cardio before or after strength training?",
+      "expectedSlug": "cardio-and-strength-order"
+    },
+    {
+      "id": "r12",
+      "query": "What should I do if an exercise hurts during training?",
+      "expectedSlug": "pain-during-training"
+    },
+    {
+      "id": "r13",
+      "query": "How do I plan a deload week?",
+      "expectedSlug": "deload-week"
+    },
+    {
+      "id": "r14",
+      "query": "What are general nutrition principles for training?",
+      "expectedSlug": "general-nutrition-for-training"
+    },
+    {
+      "id": "r15",
+      "query": "How do I train with minimal equipment while travelling?",
+      "expectedSlug": "travel-minimal-equipment"
+    }
+  ]
+}
