@@ -10,6 +10,7 @@ struct ActiveWorkoutView: View {
     @State private var weightText = ""
     @State private var showWarmup = false
     @State private var showReplace = false
+    @State private var formCheckExercise: FormAnalysisExercise?
     @State private var error: String?
     @State private var confirmFinish = false
     @State private var confirmDiscard = false
@@ -53,6 +54,9 @@ struct ActiveWorkoutView: View {
                 .presentationDetents([.large])
                 .presentationBackground(palette.background)
             }
+        }
+        .fullScreenCover(item: $formCheckExercise) { exercise in
+            FormAnalysisView(preferredExercise: exercise)
         }
         .confirmationDialog(
             "Finish and save this workout?",
@@ -325,6 +329,7 @@ struct ActiveWorkoutView: View {
                     Task { await model.skipExercise() }
                 }
             }
+            formCheckRow(exercise: exercise)
         }
         .padding(Spacing.lg)
         .background(palette.surface, in: RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
@@ -332,6 +337,44 @@ struct ActiveWorkoutView: View {
             RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
                 .strokeBorder(palette.accentBorder, lineWidth: 1)
         }
+    }
+
+    private func formCheckRow(exercise: WorkoutExercise) -> some View {
+        let support = FormAnalysisExercise.matching(catalogID: exercise.exerciseId)
+        return HStack(alignment: .top, spacing: Spacing.sm) {
+            Image(systemName: "camera.viewfinder")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(support == nil ? palette.textTertiary : palette.accentText)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 4) {
+                if let support {
+                    Button {
+                        formCheckExercise = support
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("Check form with the camera")
+                                .font(FormaFont.bodyFont(12.5, weight: .semibold))
+                                .foregroundStyle(palette.accentText)
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(palette.accentText)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    Text("\(support.shortTitle) analysis runs fully on this device. Rest timers keep running in the background.")
+                        .font(FormaFont.bodyFont(10.5))
+                        .foregroundStyle(palette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Camera form analysis is available for squats, push-ups, lunges and jumping jacks. It is not available for this movement.")
+                        .font(FormaFont.bodyFont(10.5))
+                        .foregroundStyle(palette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 2)
     }
 
     private func targetPill(_ value: String, _ label: String) -> some View {

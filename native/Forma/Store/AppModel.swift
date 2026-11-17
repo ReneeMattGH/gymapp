@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Observation
 import SwiftUI
 
@@ -67,6 +68,8 @@ final class AppModel {
     private var signalsTask: Task<Void, Never>?
     private var signalsUserId: String?
     private var refreshTask: Task<Void, Never>?
+    private var connectivityMonitor: NWPathMonitor?
+    private var connectivitySatisfied: Bool?
 
     // Sync
     private(set) var syncState: SyncState = .local
@@ -90,6 +93,8 @@ final class AppModel {
     var progressRecords: [ProgressRecord] = []
     var pendingOnboardingOutcome: OnboardingOutcome?
     var isCompletingOnboarding = false
+    /// Form-analysis sessions that are saved on this device but not yet synced.
+    private(set) var pendingFormSessionIDs: Set<String> = []
 
     var isLoadingData = false
     var loadError: String?
@@ -164,6 +169,24 @@ final class AppModel {
         favoriteExercises = Set(UserDefaults.standard.stringArray(forKey: Self.favoritesKey) ?? [])
         recentExercises = UserDefaults.standard.stringArray(forKey: Self.recentKey) ?? []
         isBootstrapping = true
+        startConnectivityMonitor()
+    }
+
+    private func startConnectivityMonitor() {
+        guard connectivityMonitor == nil else { return }
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let satisfied = path.status == .satisfied
+                let reconnected = satisfied && self.connectivitySatisfied == false
+                self.connectivitySatisfied = satisfied
+                guard reconnected, !self.pendingFormSessionIDs.isEmpty else { return }
+                await self.refreshRemoteData()
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "coach.forma.connectivity"))
+        connectivityMonitor = monitor
     }
 
     // MARK: - Derived
@@ -346,6 +369,7 @@ final class AppModel {
         loadError = nil
         libraryNotice = nil
         if isSupabase { syncState = .syncing }
+        await loadPendingFormSessions(userId: user.id)
         do {
             async let profileTask = repo.getProfile(userId: user.id)
             async let preferencesTask = repo.getPreferences(userId: user.id)
@@ -377,6 +401,8 @@ final class AppModel {
                 libraryNotice = "The server exercise library could not be reached. Showing the bundled verified copy."
             }
 
+            await mergePendingFormSessions(userId: user.id)
+            await flushPendingFormSessions()
             activeWorkout = await LocalStore.shared.loadActiveWorkout(userId: user.id)
             if activeWorkout != nil { workoutSummary = nil }
             lastSyncedAt = Date()
@@ -390,6 +416,7 @@ final class AppModel {
         } catch {
             loadError = error.localizedDescription
             if isSupabase { syncState = .offline }
+            await mergePendingFormSessions(userId: user.id)
         }
         isLoadingData = false
     }
@@ -415,6 +442,8 @@ final class AppModel {
             sessions = nextSessions
             conversations = nextConversations
             progressRecords = nextProgress
+            await mergePendingFormSessions(userId: user.id)
+            await flushPendingFormSessions()
             lastSyncedAt = Date()
             if isSupabase, syncState != .live { syncState = .cached }
             if let current = currentConversation,
@@ -423,6 +452,7 @@ final class AppModel {
             }
         } catch {
             if isSupabase { syncState = .offline }
+            await mergePendingFormSessions(userId: user.id)
         }
     }
 
@@ -490,6 +520,7 @@ final class AppModel {
         currentConversation = nil
         lastFailedPrompt = nil
         progressRecords = []
+        pendingFormSessionIDs = []
         activeWorkout = nil
         workoutSummary = nil
         planError = nil
@@ -1122,6 +1153,83 @@ final class AppModel {
 
     func dismissSummary() {
         workoutSummary = nil
+    }
+
+    // MARK: - Form analysis persistence
+
+    func saveFormAnalysisSession(
+        _ summary: FormAnalysisSessionSummary,
+        sessionID: String
+    ) async -> FormSessionSaveState {
+        guard let repo, let user else {
+            return .failed("Sign in to save this session to your workout history.")
+        }
+        let session = FormAnalysisSavedSession.workoutSession(
+            for: summary,
+            sessionID: sessionID,
+            userId: user.id
+        )
+        mergeSession(session)
+        do {
+            try await repo.saveSession(session)
+            pendingFormSessionIDs.remove(session.id)
+            await LocalStore.shared.removePendingFormSession(id: session.id, userId: user.id)
+            // A realtime refresh can run while the two writes are in flight;
+            // re-merge the complete local record so measured data never blinks out.
+            mergeSession(session)
+            return .saved
+        } catch {
+            pendingFormSessionIDs.insert(session.id)
+            await LocalStore.shared.enqueuePendingFormSession(session, userId: user.id)
+            return .queued
+        }
+    }
+
+    func isFormSessionPending(_ id: String) -> Bool {
+        pendingFormSessionIDs.contains(id)
+    }
+
+    private func mergeSession(_ session: WorkoutSession) {
+        if let index = sessions.firstIndex(where: { $0.id == session.id }) {
+            sessions[index] = session
+        } else {
+            sessions.append(session)
+        }
+        sessions.sort { $0.startedAt > $1.startedAt }
+    }
+
+    private func loadPendingFormSessions(userId: String) async {
+        let pending = await LocalStore.shared.pendingFormSessions(userId: userId)
+        pendingFormSessionIDs = Set(pending.map(\.id))
+    }
+
+    private func mergePendingFormSessions(userId: String) async {
+        let pending = await LocalStore.shared.pendingFormSessions(userId: userId)
+        pendingFormSessionIDs = Set(pending.map(\.id))
+        for session in pending {
+            if let index = sessions.firstIndex(where: { $0.id == session.id }) {
+                // The local copy carries the measured form record even when a
+                // partial remote write left an empty session row behind.
+                sessions[index] = session
+            } else {
+                sessions.append(session)
+            }
+        }
+        sessions.sort { $0.startedAt > $1.startedAt }
+    }
+
+    private func flushPendingFormSessions() async {
+        guard let repo, let user, !pendingFormSessionIDs.isEmpty else { return }
+        let pending = await LocalStore.shared.pendingFormSessions(userId: user.id)
+        for session in pending {
+            do {
+                try await repo.saveSession(session)
+                await LocalStore.shared.removePendingFormSession(id: session.id, userId: user.id)
+                pendingFormSessionIDs.remove(session.id)
+            } catch {
+                break
+            }
+        }
     }
 
     // MARK: - Coach

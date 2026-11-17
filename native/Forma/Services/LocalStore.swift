@@ -5,11 +5,15 @@ actor LocalStore {
     static let shared = LocalStore()
 
     private let directory: URL
-    init() {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        directory = base.appendingPathComponent("Forma", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    init(directory: URL? = nil) {
+        if let directory {
+            self.directory = directory
+        } else {
+            let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                ?? FileManager.default.temporaryDirectory
+            self.directory = support.appendingPathComponent("Forma", isDirectory: true)
+        }
+        try? FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
     }
 
     private func url(_ name: String) -> URL {
@@ -51,6 +55,37 @@ actor LocalStore {
 
     func clearActiveWorkout(userId: String) {
         remove(name: "active-workout-\(safe(userId))")
+    }
+
+    // Completed form-analysis sessions that still need a backend write. The
+    // queue holds only measured session metadata, never frames.
+
+    private func pendingFormName(_ userId: String) -> String {
+        "pending-form-sessions-\(safe(userId))"
+    }
+
+    func pendingFormSessions(userId: String) -> [WorkoutSession] {
+        read([WorkoutSession].self, name: pendingFormName(userId)) ?? []
+    }
+
+    func enqueuePendingFormSession(_ session: WorkoutSession, userId: String) {
+        var items = pendingFormSessions(userId: userId)
+        if let index = items.firstIndex(where: { $0.id == session.id }) {
+            items[index] = session
+        } else {
+            items.append(session)
+        }
+        write(items, name: pendingFormName(userId))
+    }
+
+    func removePendingFormSession(id: String, userId: String) {
+        var items = pendingFormSessions(userId: userId)
+        items.removeAll { $0.id == id }
+        if items.isEmpty {
+            remove(name: pendingFormName(userId))
+        } else {
+            write(items, name: pendingFormName(userId))
+        }
     }
 
     func clearAllData() {

@@ -4,6 +4,7 @@ struct WorkoutsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.formaPalette) private var palette
     @State private var showBuilder = false
+    @State private var showFormAnalysis = false
     @State private var startError: String?
 
     private var todayTrainingDay: WorkoutDay? {
@@ -39,6 +40,7 @@ struct WorkoutsView: View {
                         sessionsSection
                     }
                     libraryCard
+                    formAnalysisCard
                 }
                 .padding(.horizontal, Spacing.xl)
                 .padding(.top, Spacing.md)
@@ -55,6 +57,9 @@ struct WorkoutsView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationBackground(palette.background)
+        }
+        .fullScreenCover(isPresented: $showFormAnalysis) {
+            FormAnalysisView()
         }
     }
 
@@ -239,6 +244,41 @@ struct WorkoutsView: View {
                     Text("\(model.exercises.count) verified movements with form cues")
                         .font(FormaFont.bodyFont(11))
                         .foregroundStyle(palette.textTertiary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(palette.textTertiary)
+            }
+            .padding(Spacing.md)
+            .background(palette.surface, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+                    .strokeBorder(palette.border, lineWidth: 1)
+            }
+        }
+        .buttonStyle(PressableScaleStyle())
+    }
+
+    private var formAnalysisCard: some View {
+        Button {
+            showFormAnalysis = true
+        } label: {
+            HStack(spacing: Spacing.md) {
+                Image(systemName: "camera.viewfinder")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(palette.accentInk)
+                    .frame(width: 42, height: 42)
+                    .background(palette.accent, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Camera form check")
+                        .font(FormaFont.bodyFont(14, weight: .semibold))
+                        .foregroundStyle(palette.text)
+                    Text("Squat, push-up, lunge or jumping jack — analyzed on this device")
+                        .font(FormaFont.bodyFont(11))
+                        .foregroundStyle(palette.textTertiary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")

@@ -4,7 +4,9 @@ Forma is a native iOS AI personal gym coach written in SwiftUI. It turns a short
 onboarding into a personal training plan, runs workouts with a live rest timer,
 records every set, and reflects the results in progress analytics. The coach is
 grounded in the athlete's own profile, plan, and training history, and in a
-curated fitness knowledge base plus optional live web retrieval.
+curated fitness knowledge base plus optional live web retrieval. A camera form
+check tracks body joints on-device with Apple Vision and reports only what it
+can measure.
 
 > Forma is training software, not medical care. It does not diagnose or treat
 > injuries, and it tells the athlete to stop and seek a professional when they
@@ -14,7 +16,8 @@ curated fitness knowledge base plus optional live web retrieval.
 
 ```
 native/                Native SwiftUI app (the shipping client)
-  Forma/               App sources: Core, UI, Store, Services, Screens, Resources
+  Forma/               App sources: Core, UI, Store, Services, FormAnalysis,
+                       Screens, Resources
   FormaTests/          Hosted unit tests, including gated live-backend tests
   FormaUITests/        End-to-end XCUITest coverage
   SETUP.md             Full backend, signing, and test instructions
@@ -67,6 +70,7 @@ Apply the migrations in `supabase/migrations/` in filename order:
 | `0003_seed_exercises.sql` | Exercise catalog seed |
 | `0004_ai_memory_and_realtime.sql` | Conversation summaries, message metadata, exercise provenance, Realtime publication |
 | `0005_ai_knowledge_and_usage.sql` | pgvector, knowledge tables (1536-dim, HNSW, lexical index), `match_knowledge_chunks`, `ai_usage`, private retrieval cache |
+| `0006_form_analysis.sql` | One-to-one `form_analysis_sessions` record per camera session (`workout_sessions.id` foreign key), constraints, index, RLS, Realtime |
 
 ```bash
 supabase link --project-ref <your-project-ref>
@@ -136,6 +140,50 @@ identifiers.
 duplicates, catalog IDs, and volume, and retries with a bounded revision loop.
 The athlete must approve a generated plan in the app before it replaces the
 active one.
+
+## Camera form analysis
+
+**Workouts → Camera form check** (and a Form check row during a mapped
+exercise) opens an on-device analysis session for bodyweight squat, push-up,
+lunge, or jumping jack. The setup screen explains camera placement, exercise
+selection, framing, and privacy; the live screen shows the unmirrored preview,
+a skeleton of reliably detected joints, rep count only while counting is
+reliable, and measured observations; the summary lists duration, coverage,
+validated reps when available, observations with the body points used, and
+explicit limitations.
+
+- Capture is `AVCaptureSession` at 720p with a serial, throttled Vision
+  pipeline that drops frames rather than freezing the preview.
+- Pose comes from `VNDetectHumanBodyPoseRequest`. It is Apple's general 2D body
+  detector — not a trained exercise classifier, a form-scoring model, or a
+  medical assessment. No 3D request or Core ML model is used in this build.
+- Rep counting is a separate state machine with hysteresis, a settled start, a
+  bottom hold, minimum duration, cooldown, and confidence gating. Partial, too
+  fast, or ambiguous movement is rejected and stated rather than counted.
+- When tracking is insufficient during a set the live screen displays exactly:
+  *“Rep counting paused — body movement cannot be tracked reliably.”* If no
+  reliable count was ever established, the summary displays exactly: *“Rep
+  counting unavailable — movement could not be tracked reliably.”*
+- A finished session is written to the same workout history as other workouts:
+  a `workout_sessions` row plus one `form_analysis_sessions` row keyed by that
+  session id. The structured row holds exercise, start/end, duration, validated
+  rep count, analysis availability, coverage, tracking interruptions, summary
+  observations and limitations. Validated reps are not duplicated as completed
+  sets. RLS scopes every row to `auth.uid()`.
+- If the backend cannot be reached the finished session is saved locally on the
+  device, shown in history immediately, marked as not synced, and retried with
+  an idempotent upsert on the next load, foreground refresh, manual refresh, or
+  network reconnect. Local analysis and the summary do not depend on the
+  network.
+- Frames are processed in memory and never recorded, saved, uploaded, or sent to
+  an AI provider. Joint coordinates never leave the process. Sharing a summary
+  with the coach is opt-in, previews the exact text, and contains no images,
+  video, frames, or keypoints.
+- 2D analysis has **not** been validated on a physical device in this build. The
+  setup and summary screens state that factual limitation without an
+  experimental badge, and the app does not claim production accuracy. The
+  Simulator has no camera and only verifies permission and honest
+  unavailability. See `native/SETUP.md` for the physical-device test checklist.
 
 ## Tests
 
@@ -217,6 +265,9 @@ that nothing was tested. Use `FORMA_EVAL_CATEGORY`, `FORMA_EVAL_LIMIT`, and
   summaries, and private data are never shared across users.
 - When live retrieval is unavailable, the coach says so. It does not present
   general knowledge as current evidence.
+- Camera frames, audio, video, and joint coordinates never leave the device or
+  reach disk. Only a text-only summary the athlete reviews can be sent to the
+  coach, and only after an explicit confirmation.
 
 ## Verification status
 
@@ -227,8 +278,11 @@ Last verified in this repository:
 - `tests/planValidation.test.mjs`: 9 checks passed.
 - `tests/retrievalEval.test.mjs`: recall@3 100% (15/15), MRR 0.900 over the real
   corpus (lexical fallback; pgvector not measured).
-- `FormaTests`: 34 executed, 2 skipped (`LiveBackendTests`), 0 failures.
-- `FormaUITests`: passed.
+- `FormaTests`: 115 executed, 2 skipped (`LiveBackendTests`), 0 failures. The
+  form-analysis suites use synthetic pose fixtures; they prove the pipeline,
+  recorder, persistence and offline-queue logic, not camera or pose accuracy.
+- `FormaUITests`: passed end to end on a clean install, including the
+  form-analysis setup screen and its honest camera-unavailable state.
 - Debug and Release builds: succeeded.
 - `scripts/eval-ai.mjs`: **SKIPPED** — no live credentials were available. Live
   OpenAI, Supabase, web retrieval, pgvector, and deployed-function behavior are
@@ -243,3 +297,10 @@ Last verified in this repository:
   discloses that it cannot verify current information.
 - Vector retrieval needs the ingested corpus and a project with pgvector.
 - The Expo prototype in `src/` is legacy and not the shipping client.
+- Camera form analysis has **not** been validated on a physical device. The
+  Simulator has no camera, so real keypoint accuracy, skeleton alignment, and
+  rep-count reliability are untested in this checkout. The UI states this
+  limitation and does not present the counts or observations as validated
+  production accuracy.
+- Form analysis uses 2D Vision pose only. There is no trained exercise classifier,
+  no 3D pose, no automatic exercise identification, and no form score.

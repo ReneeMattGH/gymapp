@@ -403,7 +403,7 @@ final class SupabaseService: FormaRepository, AuthProviding, AITokenProviding {
         do {
             let rows: [SessionRow] = try await client
                 .from("workout_sessions")
-                .select("*, sets:completed_sets(*)")
+                .select("*, sets:completed_sets(*), form_analysis:form_analysis_sessions(*)")
                 .eq("user_id", value: userId)
                 .order("started_at", ascending: false)
                 .limit(200)
@@ -411,7 +411,21 @@ final class SupabaseService: FormaRepository, AuthProviding, AITokenProviding {
                 .value
             return rows.map(Self.mapSession)
         } catch {
-            throw Self.mapError(error)
+            // Older deployments may not have migration 0006 yet. Sessions and
+            // sets still load; the form record is simply absent.
+            do {
+                let rows: [SessionRow] = try await client
+                    .from("workout_sessions")
+                    .select("*, sets:completed_sets(*)")
+                    .eq("user_id", value: userId)
+                    .order("started_at", ascending: false)
+                    .limit(200)
+                    .execute()
+                    .value
+                return rows.map(Self.mapSession)
+            } catch {
+                throw Self.mapError(error)
+            }
         }
     }
 
@@ -419,14 +433,25 @@ final class SupabaseService: FormaRepository, AuthProviding, AITokenProviding {
         do {
             let row: SessionRow? = try await client
                 .from("workout_sessions")
-                .select("*, sets:completed_sets(*)")
+                .select("*, sets:completed_sets(*), form_analysis:form_analysis_sessions(*)")
                 .eq("id", value: id)
                 .maybeSingle()
                 .execute()
                 .value
             return row.map(Self.mapSession)
         } catch {
-            throw Self.mapError(error)
+            do {
+                let row: SessionRow? = try await client
+                    .from("workout_sessions")
+                    .select("*, sets:completed_sets(*)")
+                    .eq("id", value: id)
+                    .maybeSingle()
+                    .execute()
+                    .value
+                return row.map(Self.mapSession)
+            } catch {
+                throw Self.mapError(error)
+            }
         }
     }
 
@@ -456,7 +481,31 @@ final class SupabaseService: FormaRepository, AuthProviding, AITokenProviding {
             durationSeconds: row.duration_seconds ?? 0,
             status: SessionStatus(rawValue: row.status ?? "completed") ?? .completed,
             sets: sets,
-            notes: row.notes
+            notes: row.notes,
+            formAnalysis: row.form_analysis.flatMap(Self.mapFormAnalysis)
+        )
+    }
+
+    private static func mapFormAnalysis(_ row: FormAnalysisRow) -> FormAnalysisRecord? {
+        guard let exercise = FormAnalysisExercise(rawValue: row.exercise_key),
+              let availability = FormAnalysisAvailability(rawValue: row.analysis_availability),
+              let camera = FormCameraPosition(rawValue: row.camera_position ?? "") else {
+            return nil
+        }
+        return FormAnalysisRecord(
+            sessionID: row.id,
+            exercise: exercise,
+            exerciseID: row.exercise_id,
+            startedAt: date(row.started_at),
+            endedAt: date(row.ended_at),
+            durationSeconds: row.duration_seconds,
+            repCount: row.rep_count,
+            availability: availability,
+            coverage: row.coverage,
+            trackingInterruptions: row.tracking_interruptions ?? 0,
+            observations: row.observations ?? [],
+            limitations: row.limitations ?? [],
+            cameraPosition: camera
         )
     }
 
@@ -492,6 +541,25 @@ final class SupabaseService: FormaRepository, AuthProviding, AITokenProviding {
                     )
                 }
                 try await client.from("completed_sets").insert(rows).execute()
+            }
+
+            if let form = session.formAnalysis {
+                try await client.from("form_analysis_sessions").upsert(FormAnalysisUpsert(
+                    id: form.sessionID,
+                    user_id: session.userId,
+                    exercise_key: form.exercise.rawValue,
+                    exercise_id: form.exerciseID,
+                    started_at: FormaDate.string(form.startedAt),
+                    ended_at: FormaDate.string(form.endedAt),
+                    duration_seconds: form.durationSeconds,
+                    rep_count: form.repCount,
+                    analysis_availability: form.availability.rawValue,
+                    coverage: form.coverage,
+                    tracking_interruptions: form.trackingInterruptions,
+                    observations: form.observations,
+                    limitations: form.limitations,
+                    camera_position: form.cameraPosition.rawValue
+                )).execute()
             }
         } catch {
             throw Self.mapError(error)
@@ -872,6 +940,23 @@ private struct SessionRow: Decodable {
     var status: String?
     var notes: String?
     var sets: [SetItem]?
+    var form_analysis: FormAnalysisRow?
+}
+
+private struct FormAnalysisRow: Decodable {
+    var id: String
+    var exercise_key: String
+    var exercise_id: String?
+    var started_at: String
+    var ended_at: String
+    var duration_seconds: Int
+    var rep_count: Int?
+    var analysis_availability: String
+    var coverage: Double?
+    var tracking_interruptions: Int?
+    var observations: [StoredFormObservation]?
+    var limitations: [String]?
+    var camera_position: String?
 }
 
 private struct ReminderRow: Decodable {
@@ -1020,6 +1105,23 @@ private struct SetInsert: Encodable {
     var reps: Int
     var weight_kg: Double?
     var completed_at: String
+}
+
+private struct FormAnalysisUpsert: Encodable {
+    var id: String
+    var user_id: String
+    var exercise_key: String
+    var exercise_id: String?
+    var started_at: String
+    var ended_at: String
+    var duration_seconds: Int
+    var rep_count: Int?
+    var analysis_availability: String
+    var coverage: Double?
+    var tracking_interruptions: Int
+    var observations: [StoredFormObservation]
+    var limitations: [String]
+    var camera_position: String
 }
 
 private struct ReminderUpsert: Encodable {

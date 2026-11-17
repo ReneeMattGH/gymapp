@@ -229,4 +229,19 @@ enum TrainingStats {
     static func totalReps(_ sets: [CompletedSet]) -> Int {
         sets.reduce(0) { $0 + $1.reps }
     }
+
+    /// Form-analysis reps are stored in the analysis record, never as completed
+    /// sets, so adding them here cannot double-count.
+    static func sessionReps(_ session: WorkoutSession) -> Int {
+        totalReps(session.sets) + (session.formAnalysis?.repCount ?? 0)
+    }
+
+    static func sessionSubtitle(_ session: WorkoutSession) -> String {
+        let base = "\(Formatters.shortDate(session.startedAt)) · \(Formatters.minutesLabel(session.durationSeconds))"
+        guard let form = session.formAnalysis else {
+            return "\(base) · \(session.sets.count) sets"
+        }
+        let reps = form.repCount.map { "\($0) reps" } ?? "reps unavailable"
+        return "\(base) · \(reps) · form check"
+    }
 }

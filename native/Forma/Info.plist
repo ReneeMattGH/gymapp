@@ -68,6 +68,8 @@
 	<string>Forma does not write workout data to Apple Health. This permission is only requested if you choose to save a session to Health.</string>
 	<key>NSHealthClinicalHealthRecordsShareUsageDescription</key>
 	<string>Forma does not access clinical health records.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Forma uses the camera for on-device exercise form analysis. Video frames are processed in memory with Apple Vision and are never uploaded or saved.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>CFBundleURLTypes</key>

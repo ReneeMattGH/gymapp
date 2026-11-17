@@ -69,7 +69,7 @@ struct ProgressView: View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: Spacing.sm), GridItem(.flexible(), spacing: Spacing.sm)], spacing: Spacing.sm) {
             StatTile(value: "\(model.completedSessions.count)", label: "Sessions", detail: "completed")
             StatTile(value: "\(TrainingStats.currentStreak(model.sessions))", label: "Streak", detail: "days", accent: true)
-            StatTile(value: "\(TrainingStats.totalReps(model.completedSessions.flatMap(\.sets)))", label: "Reps", detail: "logged")
+            StatTile(value: "\(model.completedSessions.reduce(0) { $0 + TrainingStats.sessionReps($1) })", label: "Reps", detail: "logged")
             StatTile(value: timeTrainedText, label: "Time", detail: "trained")
         }
     }
@@ -116,7 +116,7 @@ struct ProgressView: View {
             emptyMessage: "Your logged reps will appear here."
         ) {
             Chart(sessionPoints) { session in
-                let reps = TrainingStats.totalReps(session.sets)
+                let reps = TrainingStats.sessionReps(session)
                 LineMark(
                     x: .value("Date", session.startedAt),
                     y: .value("Reps", reps)
@@ -347,7 +347,7 @@ struct ProgressView: View {
                                     Text(session.title)
                                         .font(FormaFont.bodyFont(14, weight: .semibold))
                                         .foregroundStyle(palette.text)
-                                    Text("\(Formatters.minutesLabel(session.durationSeconds)) · \(session.sets.count) sets · \(TrainingStats.totalReps(session.sets)) reps")
+                                    Text(TrainingStats.sessionSubtitle(session))
                                         .font(FormaFont.bodyFont(10.5))
                                         .foregroundStyle(palette.textTertiary)
                                 }
@@ -494,9 +494,15 @@ struct SessionDetailView: View {
                 )
                 HStack(spacing: Spacing.sm) {
                     StatTile(value: Formatters.minutesLabel(session.durationSeconds), label: "Duration")
-                    StatTile(value: "\(session.sets.count)", label: "Sets")
-                    StatTile(value: "\(TrainingStats.totalReps(session.sets))", label: "Reps")
+                    if let form = session.formAnalysis {
+                        StatTile(value: form.repCount.map(String.init) ?? "—", label: "Reps", detail: "validated")
+                        StatTile(value: "\(form.trackingInterruptions)", label: "Gaps")
+                    } else {
+                        StatTile(value: "\(session.sets.count)", label: "Sets")
+                        StatTile(value: "\(TrainingStats.sessionReps(session))", label: "Reps")
+                    }
                 }
+                formAnalysisCard
                 if let totalVolume {
                     FormaCard(style: .raised) {
                         KeyValueRow(
@@ -509,13 +515,13 @@ struct SessionDetailView: View {
                             .foregroundStyle(palette.textTertiary)
                     }
                 }
-                if grouped.isEmpty {
+                if grouped.isEmpty, session.formAnalysis == nil {
                     FormaEmptyState(
                         systemImage: "list.bullet.clipboard",
                         title: "No sets recorded",
                         message: "This session was saved without completed sets."
                     )
-                } else {
+                } else if !grouped.isEmpty {
                     VStack(alignment: .leading, spacing: Spacing.md) {
                         SectionHeader(title: "Exercises")
                         ForEach(grouped, id: \.exerciseId) { group in
@@ -577,6 +583,76 @@ struct SessionDetailView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+    }
+
+    @ViewBuilder
+    private var formAnalysisCard: some View {
+        if let form = session.formAnalysis {
+            FormaCard(style: .raised) {
+                HStack {
+                    Overline(text: "Camera form check")
+                    Spacer()
+                    Text(form.availability.label.uppercased())
+                        .font(FormaFont.bodyFont(9, weight: .semibold))
+                        .tracking(0.8)
+                        .foregroundStyle(form.availability == .reliable ? palette.accentText : palette.warning)
+                }
+
+                KeyValueRow(label: "Exercise", value: form.exercise.title)
+                KeyValueRow(label: "Analysis quality", value: form.availability.label)
+                if let coverage = form.coverage {
+                    KeyValueRow(label: "Reliable frames", value: "\(Int((coverage * 100).rounded()))%")
+                }
+                KeyValueRow(label: "Tracking gaps", value: "\(form.trackingInterruptions)")
+                KeyValueRow(
+                    label: "Validated reps",
+                    value: form.repCount.map(String.init) ?? "Unavailable"
+                )
+
+                if model.isFormSessionPending(session.id) {
+                    NoticeBanner(
+                        message: "Not synced yet. This record is saved on this iPhone and will retry automatically.",
+                        systemImage: "wifi.slash"
+                    )
+                }
+
+                if !form.observations.isEmpty {
+                    Text("Measured observations")
+                        .font(FormaFont.bodyFont(12, weight: .semibold))
+                        .foregroundStyle(palette.text)
+                        .padding(.top, Spacing.xs)
+                    VStack(spacing: Spacing.sm) {
+                        ForEach(form.observations, id: \.id) { stored in
+                            FormAnalysisObservationRow(observation: stored.formObservation)
+                        }
+                    }
+                }
+
+                if !form.limitations.isEmpty {
+                    Text("Not assessed")
+                        .font(FormaFont.bodyFont(12, weight: .semibold))
+                        .foregroundStyle(palette.text)
+                        .padding(.top, Spacing.xs)
+                    ForEach(form.limitations, id: \.self) { limitation in
+                        HStack(alignment: .top, spacing: Spacing.sm) {
+                            Image(systemName: "minus.circle")
+                                .font(.system(size: 9))
+                                .foregroundStyle(palette.textTertiary)
+                                .padding(.top, 3)
+                            Text(limitation)
+                                .font(FormaFont.bodyFont(11))
+                                .foregroundStyle(palette.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+
+                Text("No video, frames or joint coordinates were stored with this session.")
+                    .font(FormaFont.bodyFont(10.5))
+                    .foregroundStyle(palette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private var endedLabel: String {

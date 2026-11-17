@@ -356,6 +356,9 @@ struct WorkoutSession: Codable, Identifiable, Equatable, Sendable {
     var status: SessionStatus
     var sets: [CompletedSet]
     var notes: String?
+    /// Present only for sessions recorded by the camera form check. Validated
+    /// reps live here instead of in `sets`, so they are never double-counted.
+    var formAnalysis: FormAnalysisRecord? = nil
 
     var isCompleted: Bool { status == .completed && endedAt != nil }
 }

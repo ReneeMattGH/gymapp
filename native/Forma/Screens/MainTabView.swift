@@ -347,7 +347,7 @@ struct HomeView: View {
                     HStack(spacing: Spacing.lg) {
                         miniStat(value: "\(TrainingStats.currentStreak(model.sessions))", label: "day streak")
                         miniStat(value: "\(model.completedSessions.count)", label: "total")
-                        miniStat(value: "\(TrainingStats.totalReps(model.completedSessions.flatMap(\.sets)))", label: "reps")
+                        miniStat(value: "\(model.completedSessions.reduce(0) { $0 + TrainingStats.sessionReps($1) })", label: "reps")
                     }
                 }
             }
@@ -487,7 +487,7 @@ struct HomeView: View {
                 Text(session.title)
                     .font(FormaFont.bodyFont(14, weight: .semibold))
                     .foregroundStyle(palette.text)
-                Text("\(Formatters.shortDate(session.startedAt)) · \(Formatters.minutesLabel(session.durationSeconds)) · \(session.sets.count) sets")
+                Text(TrainingStats.sessionSubtitle(session))
                     .font(FormaFont.bodyFont(11))
                     .foregroundStyle(palette.textTertiary)
             }

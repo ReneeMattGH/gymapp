@@ -141,6 +141,12 @@ final class FormaFlowTests: XCTestCase {
         app.navigationBars.buttons.firstMatch.tap()
         app.tabBars.buttons["Workouts"].tap()
         sleep(1)
+        // Finishing a workout can leave the workout-day screen pushed on this tab.
+        let workoutsBack = app.navigationBars.buttons["BackButton"]
+        if workoutsBack.exists {
+            workoutsBack.tap()
+            sleep(1)
+        }
         let libraryRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Exercise library")).firstMatch
         scrollUntilHittable(libraryRow)
         libraryRow.tap()
@@ -169,6 +175,30 @@ final class FormaFlowTests: XCTestCase {
         sleep(1)
         snap("30-library-detail")
         app.navigationBars.buttons.firstMatch.tap()
+        sleep(1)
+        let libraryBack = app.navigationBars.buttons["BackButton"]
+        if libraryBack.exists {
+            libraryBack.tap()
+            sleep(1)
+        }
+
+        let formCard = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Camera form check")).firstMatch
+        scrollUntilHittable(formCard)
+        XCTAssertTrue(formCard.exists, "Camera form check entry is missing from Workouts")
+        formCard.tap()
+
+        XCTAssertTrue(app.staticTexts["Check your form"].waitForExistence(timeout: 8), "Form analysis setup did not open")
+        XCTAssertTrue(
+            app.staticTexts["No camera is available on this device. The Simulator cannot test camera or pose analysis."].waitForExistence(timeout: 5),
+            "Simulator camera unavailability was not explained honestly"
+        )
+        let startAnalysis = app.buttons["Start analysis"].firstMatch
+        XCTAssertTrue(startAnalysis.exists, "Start analysis button is missing")
+        XCTAssertFalse(startAnalysis.isEnabled, "Start analysis must be disabled when no camera exists")
+        snap("33-form-analysis-setup")
+
+        app.buttons["Close form analysis"].tap()
+        sleep(1)
 
         app.terminate()
         app.launch()

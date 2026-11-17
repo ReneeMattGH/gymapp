@@ -49,7 +49,11 @@ repository that is reset when you exit preview from Profile.
    adds the curated knowledge tables (1536-dimension embeddings, HNSW index,
    lexical index, `match_knowledge_chunks`), token usage accounting, and the
    private web-retrieval cache. pgvector is available on Supabase; on a
-   self-hosted Postgres, install it before applying 0005.
+   self-hosted Postgres, install it before applying 0005. Migration
+   `0006_form_analysis.sql` adds the one-to-one `form_analysis_sessions` table
+   for camera sessions (RLS, cascade from `workout_sessions`, Realtime). The app
+   falls back to session history without form records if this migration is
+   missing, but camera summaries are then queued locally instead of synced.
 
 3. **Realtime.** The app subscribes to a per-user channel filtered by `user_id`
    on `workout_plans`, `workout_sessions`, `completed_sets`, `user_preferences`,
@@ -165,11 +169,95 @@ labels the source as Apple Health. It never writes to Health.
 
 `Info.plist` already contains the required usage strings.
 
-## 7. Tests
+## 7. Camera form analysis
+
+The camera form check is entered from **Workouts → Camera form check**, or from
+the Form check row inside an active workout when the current movement has a
+matching analysis (bodyweight squat, push-up, walking lunge). Jumping jack is
+available from the setup screen even though no catalog exercise maps to it.
+
+What is implemented:
+
+- `AVCaptureSession` at 720p with a video-data output, a serial analysis
+  pipeline, frame dropping, and 10 fps throttling (slower when the device is
+  warm). The preview keeps rendering while analysis drops frames.
+- Apple Vision 2D body pose (`VNDetectHumanBodyPoseRequest`). This is Apple's
+  general body detector, **not** a trained exercise classifier. No 3D request
+  and no Core ML model are integrated in this build.
+- Exercise-specific analysers for squat, push-up, lunge, and jumping jack using
+  only the joints each movement needs. Rep counting is a separate state machine
+  (settled start → descending → bottom hold → ascending → completed) with
+  hysteresis, minimum duration, cooldown, and confidence gating.
+- Feedback is measured-only, labelled observed / limited / unavailable, and
+  lists the body points used and the measured values. There is no form score and
+  no injury or risk claim. While tracking is insufficient the live screen shows
+  exactly: **“Rep counting paused — body movement cannot be tracked reliably.”**
+  If no reliable count was established for the whole session, the summary shows
+  exactly: **“Rep counting unavailable — movement could not be tracked
+  reliably.”**
+- A finished session is saved to the existing workout history: a
+  `workout_sessions` row (no completed sets) plus a one-to-one
+  `form_analysis_sessions` row from migration `0006_form_analysis.sql`. RLS
+  restricts both to `user_id = auth.uid()`. If the write fails, the session is
+  queued in `Application Support/Forma` for that user, merged into history
+  immediately, and retried with an idempotent upsert on the next load, foreground
+  refresh, manual refresh, or network reconnect. Only session metadata and
+  measured observations are queued — never frames or keypoints.
+
+The required `NSCameraUsageDescription` is in `Info.plist`. Analysis is opt-in
+and can be denied without affecting the rest of the app.
+
+### Privacy
+
+Frames are analysed in memory on the device. Nothing is recorded, written to
+disk, uploaded to Supabase, or sent to an AI provider. Joint coordinates never
+leave the process. The optional “Preview & share summary” flow shows the exact
+text before sending and includes only measured text (exercise, duration,
+counted reps, coverage, measured observations, limitations) — never images,
+video, frames, or keypoints. The pipeline releases the camera on pause, end,
+backgrounding, and screen dismissal.
+
+The only camera-derived data that is persisted is the structured session record
+described above (rep count, availability, coverage, interruptions, observation
+text, measured values, limitations). The offline retry queue lives in the app's
+Application Support directory and is scoped per user; it is removed after a
+successful sync or sign-out.
+
+### Validation status — physical device required
+
+The Simulator has no camera, so it only verifies the permission and
+camera-unavailable paths. **Pose accuracy, overlay alignment, lighting and
+occlusion handling, and rep-count reliability have not been validated on a
+physical iPhone in this build.** The UI states this limitation factually in the
+setup and summary screens, and no production-accuracy claim is made. A
+real-device pass must still cover:
+
+1. Front and rear camera at the documented distances and angles for each
+   exercise, checking that the skeleton lines up with the body at the edges of
+   the frame (aspect-fill mapping) and in both camera positions.
+2. Squat / push-up / lunge / jumping jack sets at normal, slow, and fast tempos,
+   confirming that deliberate partial reps are rejected rather than counted.
+3. Poor lighting, motion blur, loose clothing, partial occlusion, one person
+   leaving and re-entering, and a second person entering the frame.
+4. Backgrounding, phone-call-style camera interruptions, pause/resume, thermal
+   throttling, and ending the session.
+5. Comparing the app's per-rep observations against manual video review before
+   calling any exercise “validated”. Until then, treat counts and observations
+   as experimental even when they look plausible.
+
+## 8. Tests
 
 `FormaTests` is a hosted unit-test target covering the plan validator (schedule,
 duration, equipment, duplicates, safe volume), the assistant response safety
-validator, and exercise search/filtering/pagination. Run it alone with:
+validator, exercise search/filtering/pagination, and the form-analysis core:
+pose geometry and confidence filtering, smoothing, rep-state transitions,
+incomplete-rep rejection, per-exercise analysers, feedback wording, the
+pipeline with a scripted pose detector, the session recorder and coach message,
+preview-to-view alignment, the view model's permission/camera/pause paths,
+availability classification, and the saved-session record, per-user offline
+queue and rep-total logic.
+All of these use synthetic pose fixtures; synthetic fixtures prove the logic,
+not real-world accuracy. Run it alone with:
 
 ```bash
 cd native
@@ -228,7 +316,8 @@ code 3, and states that nothing was tested — a skip is not a pass. Use
 preview entry, the seven onboarding steps, plan generation, all five tabs,
 logging a set with the rest timer, backgrounding and reactivation, finishing
 and saving the session, coach replies, reminders scheduling with the system
-permission prompt, and relaunch persistence.
+permission prompt, launch persistence, and the camera form-check setup screen
+(including the honest “camera unavailable” state on the Simulator).
 
 ```bash
 cd native
@@ -247,7 +336,7 @@ xcrun simctl uninstall <device-udid> forma.coach
 Screenshots are attached to the result bundle and can be exported with
 `xcrun xcresulttool export attachments`.
 
-## 8. Project layout
+## 9. Project layout
 
 ```
 native/Forma/
@@ -255,6 +344,7 @@ native/Forma/
   UI/          Shared components
   Store/       AppModel (@Observable, @MainActor)
   Services/    Supabase, AI, HealthKit, notifications, plan engine, storage
+  FormAnalysis/ Camera, Vision pose, analysers, rep engine, feedback, session
   Screens/     Root, onboarding, tabs, workout, library, coach, settings
   Resources/   Fonts, exercise catalog
 native/FormaUITests/   XCUITest coverage
@@ -269,6 +359,9 @@ supabase/              Migrations and Edge Functions
 - Auth sessions are persisted by the Supabase SDK (Keychain-backed) and cleared
   on sign out or account deletion.
 - Health data is read on demand and is never logged or sent to the coach.
+- Camera frames, audio, video, and joint coordinates stay in memory. Nothing is
+  uploaded or written to disk, and no recording permission is requested.
+- Only a user-reviewed text summary can be attached to a coach message.
 - AI output is validated server-side and client-side: exercises must exist in
   the catalog, loads stay conservative, and pain or medical questions are
   redirected to a professional rather than diagnosed.
