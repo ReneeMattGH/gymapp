@@ -148,7 +148,7 @@ plan on-device, and syncs it to Supabase.
 ## 5. Device signing and notifications
 
 - Select your team under **Signing & Capabilities** for the Forma target.
-- The bundle id is `com.forma.coach`; change it if it is already taken.
+- The bundle id is `forma.coach`; change it if it is already taken.
 - Notifications are local calendar triggers, so no push certificates are
   needed. iOS asks for permission the first time reminders are saved, including
   during onboarding. The Reminders screen reports the count iOS actually has
@@ -241,7 +241,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 The test needs a clean install to exercise the setup screen:
 
 ```bash
-xcrun simctl uninstall <device-udid> com.forma.coach
+xcrun simctl uninstall <device-udid> forma.coach
 ```
 
 Screenshots are attached to the result bundle and can be exported with

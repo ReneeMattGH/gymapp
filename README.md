@@ -182,7 +182,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 The UI test needs a clean install to exercise the setup screen:
 
 ```bash
-xcrun simctl uninstall <device-udid> com.forma.coach
+xcrun simctl uninstall <device-udid> forma.coach
 ```
 
 ### Live AI evaluation (A–J)

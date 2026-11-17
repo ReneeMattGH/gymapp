@@ -50,3 +50,6 @@ native/.swiftpm/
 
 # local secrets
 .env
+
+# Xcode user state
+**/xcuserdata/
