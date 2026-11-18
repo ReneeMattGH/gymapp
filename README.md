@@ -6,7 +6,8 @@ records every set, and reflects the results in progress analytics. Community
 lets people who chose the same gym or area find each other, connect, post, and
 message — using only real registered accounts and real backend records. A camera
 form check tracks body joints on-device with Apple Vision and reports only what
-it can measure.
+it can measure. A WidgetKit Home Screen widget mirrors the owner's real training
+week without a second data store.
 
 > Forma is training software, not medical care. It does not diagnose or treat
 > injuries, and it tells the athlete to stop and seek a professional when they
@@ -17,7 +18,10 @@ it can measure.
 ```
 native/                Native SwiftUI app (the shipping client)
   Forma/               App sources: Core, UI, Store, Services, Community,
-                       FormAnalysis, Screens, Resources
+                       FormAnalysis, Widget, Screens, Resources
+  FormaWidgets/        WidgetKit extension: Fitness Command Center
+  Shared/              Snapshot models, App Group store, timeline helpers
+                       compiled into both the app and the widget
   FormaTests/          Hosted unit tests, including gated live-backend tests
   FormaUITests/        End-to-end XCUITest coverage
   SETUP.md             Full backend, signing, and test instructions
@@ -194,6 +198,47 @@ explicit limitations.
   camera and only verifies permission and honest unavailability. See
   `native/SETUP.md` for the physical-device test checklist.
 
+## Home Screen widget
+
+`FormaWidgets` is a real WidgetKit extension embedded in the app. It offers
+**Fitness Command Center** in the small, medium, and large system families:
+
+- **Small** — today's focus with status, exercise and set counts, duration, and
+  weekly goal progress. A configuration intent lets the owner choose automatic,
+  today, weekly, or consistency emphasis.
+- **Medium** — today plus the current week: goal, completed and remaining
+  sessions, actual minutes, a real seven-day chart, and a quick action.
+- **Large** — today, weekly ring, last-seven-days chart, streak, and Community
+  counts when the signed-in account has any. Community shows pending request and
+  unread message/notification **counts only** — never message text, member
+  names, gym details, or notification bodies.
+
+Data flows through the `group.forma.coach` App Group, not through a second
+workout system. `WidgetPublisher` builds a compact, account-scoped
+`WidgetSnapshot` from the same `WorkoutPlan`, `Preferences`, `WorkoutSession`,
+`TrainingStats`, and `ActiveWorkout` records the app uses, then asks
+`WidgetCenter` to reload after real changes: data loads, onboarding, plan edits,
+preference changes, workout start/finish/discard, form-analysis saves, and
+Community count changes. The extension never calls the network and never walks
+workout history. The timeline refreshes at the next local midnight so "today"
+and the seven-day strip roll over; app-driven reloads handle everything else. An
+old snapshot is labelled with its age rather than presented as live.
+
+Deep links reuse the existing navigation: today, start workout, workouts (plan),
+progress, Community, connection requests, and messages. `start-workout` opens
+Home and starts the genuine active-workout flow; it never marks a workout
+complete. Auth callback URLs are still handled before navigation routing.
+
+There are no fabricated values. With no plan the widget shows a real empty state
+and an "Open Forma" action; with no history the chart is empty; rest days,
+unscheduled days, completed days, in-progress workouts, and missing or expired
+snapshots each have their own state.
+
+Provisioning: enable the `group.forma.coach` App Group for both `forma.coach`
+and `forma.coach.widgets` in the Apple Developer portal, then regenerate
+profiles. Simulator builds embed the entitlement; a physical device needs
+matching profiles. See `native/SETUP.md`.
+
 ## Tests
 
 ### Native unit tests
@@ -245,17 +290,30 @@ xcrun simctl uninstall <device-udid> forma.coach
 
 ## Verification status
 
-Last verified in this repository (2026-11-17):
+Last verified in this repository (2026-11-18):
 
-- `FormaTests`: 111 executed, 4 skipped (`LiveBackendTests`), 0 failures. That
-  includes 11 Community model-decoding tests and the form-analysis suites. The
-  form-analysis suites use synthetic pose fixtures; they prove the pipeline,
-  recorder, persistence, and offline-queue logic, not camera or pose accuracy.
-- `FormaUITests`: passed end to end on a clean install (136 s), covering
+- `FormaTests`: 147 executed, 4 skipped (`LiveBackendTests`), 0 failures. That
+  includes 36 widget tests (snapshot encode/decode, schema and corruption
+  rejection, account isolation, Community count overlay and change detection,
+  builder accuracy for every today state and weekly metric, timeline refresh and
+  freshness logic, deep-link parsing, and an App Group round-trip) plus 11
+  Community model-decoding tests and the form-analysis suites. The form-analysis
+  suites use synthetic pose fixtures; they prove the pipeline, recorder,
+  persistence, and offline-queue logic, not camera or pose accuracy.
+- `FormaUITests`: passed end to end on a clean install (128 s), covering
   onboarding, all five tabs, the preview Community honest state, workout
   logging, reminders, relaunch persistence, and the camera-unavailable setup
   screen.
-- Debug and Release builds: succeeded.
+- Debug and Release builds: succeeded, including the embedded
+  `FormaWidgets.appex`. PlugInKit lists `forma.coach.widgets` as a WidgetKit
+  extension, and the `group.forma.coach` container resolves on the Simulator.
+- End-to-end widget data: after the UI test completed preview onboarding and a
+  workout, the shared App Group contained a real snapshot (preview account,
+  completed session title, 5 exercises, 10 sets, real weekly goal and seven-day
+  records, streak and reps) written by the app — no fabricated values.
+- Home Screen widget **placement and pixel rendering in the iOS widget gallery
+  were not verified**: the Simulator provides no supported command to add a
+  widget from the gallery. Physical-device behaviour is also unverified.
 - Live Supabase behavior — migrations, RLS, RPC enforcement, Realtime, storage,
   and the privacy checks in `LiveBackendTests` — is **not verified** in this
   checkout because no project credentials were available. The live tests skip
@@ -275,3 +333,9 @@ Last verified in this repository (2026-11-17):
   rep-count reliability are untested in this checkout.
 - Form analysis uses 2D Vision pose only. There is no trained exercise classifier,
   no 3D pose, no automatic exercise identification, and no form score.
+- The widget has not been placed on a Home Screen or visually inspected in the
+  widget gallery in this checkout; the Simulator offers no supported CLI for
+  that. Extension registration, App Group sharing, snapshot contents, and the
+  app-side reload triggers are verified, but layout at every Dynamic Type size,
+  light/dark rendering on device, and widget-specific performance still need a
+  physical-device pass. Lock Screen accessory families are not implemented.

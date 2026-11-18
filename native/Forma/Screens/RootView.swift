@@ -21,9 +21,13 @@ struct RootView: View {
         }
         .onOpenURL { url in
             guard url.scheme == "forma" else { return }
-            model.handleAuthURL(url)
-            if url.host == "update-password" || url.absoluteString.contains("update-password") {
-                showPasswordUpdate = true
+            if url.host == "auth-callback" || url.absoluteString.contains("update-password") {
+                model.handleAuthURL(url)
+                if url.absoluteString.contains("update-password") {
+                    showPasswordUpdate = true
+                }
+            } else {
+                model.routeDeepLink(url)
             }
         }
         .onChange(of: scenePhase) { _, phase in

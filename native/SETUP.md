@@ -151,6 +151,12 @@ plan on-device, and syncs it to Supabase.
 
 - Select your team under **Signing & Capabilities** for the Forma target.
 - The bundle id is `forma.coach`; change it if it is already taken.
+- The app embeds the `FormaWidgets` extension (`forma.coach.widgets`). Both
+  targets use the App Group **`group.forma.coach`**, declared in
+  `Forma/Forma.entitlements` and `FormaWidgets/FormaWidgets.entitlements`.
+- Enable that App Group for **both** App IDs in the Apple Developer portal and
+  regenerate provisioning profiles. Without it the app builds, but the widget
+  cannot read the snapshot on a device.
 - Notifications are local calendar triggers, so no push certificates are
   needed. iOS asks for permission the first time reminders are saved, including
   during onboarding. The Reminders screen reports the count iOS actually has
@@ -242,7 +248,97 @@ real-device pass must still cover:
    calling any exercise “validated”. Until then, treat counts and observations
    as experimental even when they look plausible.
 
-## 8. Tests
+## 8. Home Screen widget
+
+`FormaWidgets` is a WidgetKit app extension embedded in Forma. It supplies
+**Fitness Command Center** in the `systemSmall`, `systemMedium`, and
+`systemLarge` families. The widget is available from the iOS widget gallery at
+runtime; the extension target is `forma.coach.widgets` and its extension point
+is `com.apple.widgetkit-extension`.
+
+### Shared data
+
+The app and extension both compile `native/Shared/` and communicate through the
+App Group `group.forma.coach`:
+
+| Type | Responsibility |
+| --- | --- |
+| `WidgetSnapshot` | Codable, versioned, account-scoped summary of plan, today, week, streak, totals and Community counts |
+| `WidgetSharedDataStore` | App Group codec, schema/account validation, Community-count overlay |
+| `WidgetTimelineLogic` | Next-midnight refresh date, freshness label, staleness threshold |
+| `WidgetSnapshotBuilder` (app) | Builds the snapshot from `WorkoutPlan`, `Preferences`, `WorkoutSession`, `TrainingStats`, and `ActiveWorkout` |
+| `WidgetPublisher` (app) | Saves the snapshot, clears it on sign-out, reloads the widget after real changes |
+
+The training snapshot and Community counts are stored under separate keys.
+Counts carry the account id they belong to; a snapshot only overlays counts for
+its own account, so a late or early Community write cannot leak across accounts
+or depend on write order. Sign-out, account deletion, and preview exit clear the
+shared state.
+
+The widget performs no network requests. The app reloads the timeline after
+onboarding, plan or preference changes, workout start/finish/discard,
+form-analysis saves, data loads, and changes in Community counts. The timeline
+also refreshes at the next local midnight.
+
+### Deep links
+
+The extension uses the app's existing `forma://` routes:
+
+```
+forma://today
+forma://start-workout
+forma://workouts      (forma://plan also maps here)
+forma://progress
+forma://community
+forma://community/requests
+forma://community/messages
+```
+
+`start-workout` routes through the existing Home flow and starts a real
+`ActiveWorkout`; it does not write a completed session. Auth callback URLs are
+handled before navigation parsing and are rejected by the navigation deep-link
+parser.
+
+### Configuration
+
+The small family supports a `WidgetConfigurationIntent` with automatic, today,
+weekly, and consistency emphasis. Medium and large always show their full
+layout. All families support light and dark appearances and derive every value
+from the snapshot.
+
+### Privacy
+
+The widget shows only workout summaries and Community **counts**. Message text,
+member identities, gym details, notification bodies, health data, location, and
+API keys are never written to the shared container. The snapshot contains only
+the signed-in account's id.
+
+### Testing
+
+- `FormaTests` covers the codec, schema versioning, corrupt and missing data,
+  account isolation, count change detection, builder accuracy for every today
+  state, weekly totals, streak, reps, timeline/freshness logic, deep links, and
+  an App Group round-trip.
+- The extension is registered by PlugInKit and the App Group container resolves
+  on the Simulator.
+- Adding a widget from the iOS gallery cannot be automated with `simctl`, so
+  gallery placement and rendering are not verified by the automated tests. Do a
+  physical-device pass:
+
+1. Install a signed build via Xcode, then long-press the Home Screen → **+** →
+   search **Forma** → add small, medium, and large.
+2. Complete onboarding and a workout; confirm counts, minutes, goal, streak, and
+   the seven-day chart match the app.
+3. Check rest day, unscheduled day, no-plan, and no-history states, plus light
+   and dark appearance and larger Dynamic Type sizes.
+4. Tap each family and each Community count row to confirm the correct tab or
+   screen opens.
+5. Sign out and confirm the widget returns to the empty state instead of showing
+   the previous account.
+6. Background the app after a change and confirm the widget refreshes; leave it
+   overnight to confirm the date-based rollover.
+
+## 9. Tests
 
 `FormaTests` is a hosted unit-test target covering the plan validator (schedule,
 duration, equipment, duplicates, safe volume), exercise search/filtering/
@@ -252,7 +348,11 @@ incomplete-rep rejection, per-exercise analysers, feedback wording, the
 pipeline with a scripted pose detector, the session recorder, preview-to-view
 alignment, the view model's permission/camera/pause paths, availability
 classification, and the saved-session record, per-user offline queue and
-rep-total logic.
+rep-total logic. It also covers the widget data layer: snapshot
+encode/decode, schema and corruption rejection, account isolation, Community
+count overlay and change detection, builder output for no-plan/rest/workout/
+completed/in-progress/not-scheduled days, weekly totals, streak, reps, timeline
+refresh and freshness, deep-link parsing, and an App Group round-trip.
 All form-analysis tests use synthetic pose fixtures; synthetic fixtures prove the
 logic, not real-world accuracy. The Community model tests prove decoding and
 display logic against representative payloads, not live backend behavior. Run it
@@ -306,7 +406,7 @@ xcrun simctl uninstall <device-udid> forma.coach
 Screenshots are attached to the result bundle and can be exported with
 `xcrun xcresulttool export attachments`.
 
-## 9. Project layout
+## 10. Project layout
 
 ```
 native/Forma/
@@ -317,10 +417,16 @@ native/Forma/
   Community/   Models, service, store, root/home/discover/connections,
                messages, feed, profile/settings, notifications, admin
   FormAnalysis/ Camera, Vision pose, analysers, rep engine, feedback, session
+  Widget/      WidgetSnapshotBuilder, WidgetPublisher, AppModel extensions
   Screens/     Root, onboarding, tabs, workout, library, settings
   Resources/   Fonts, exercise catalog
-native/FormaUITests/   XCUITest coverage
-supabase/              Migrations and the delete-account Edge Function
+native/Shared/          WidgetSnapshot, WidgetSharedDataStore,
+                        WidgetTimelineLogic (compiled into both targets)
+native/FormaWidgets/    WidgetKit extension: bundle, timeline, configuration
+                        intent, views, theme
+native/FormaTests/      Hosted unit tests
+native/FormaUITests/    XCUITest coverage
+supabase/               Migrations and the delete-account Edge Function
 ```
 
 ## Security checklist
@@ -338,6 +444,10 @@ supabase/              Migrations and the delete-account Edge Function
   itself moderation access.
 - Discovery, feed, profile, and messaging RPCs never return email, phone,
   address, coordinates, presence, or exact distance.
+- The widget App Group contains only a compact account-scoped training summary
+  and Community counts. It never contains message text, notification bodies,
+  health data, location, or credentials, and the snapshot is cleared on sign-out,
+  account change, or account deletion.
 - Community never requests location permission and never runs background
   location tracking.
 - Messaging v1 is text and emoji only; the server rejects links and there is no

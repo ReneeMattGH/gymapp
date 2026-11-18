@@ -34,6 +34,9 @@ struct MainTabView: View {
         .tint(palette.accent)
         .toolbarBackground(palette.background, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
+        .onChange(of: model.pendingDeepLink, initial: true) { _, link in
+            apply(link)
+        }
         .fullScreenCover(isPresented: workoutBinding) {
             ActiveWorkoutView()
                 .interactiveDismissDisabled()
@@ -43,6 +46,25 @@ struct MainTabView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationBackground(palette.background)
+        }
+    }
+
+    private func apply(_ link: AppDeepLink?) {
+        guard let link else { return }
+        switch link {
+        case .today:
+            selection = .home
+            model.consumeDeepLink(.today)
+        case .startWorkout:
+            selection = .home
+        case .workouts:
+            selection = .workouts
+            model.consumeDeepLink(.workouts)
+        case .progress:
+            selection = .progress
+            model.consumeDeepLink(.progress)
+        case .community, .connectionRequests, .messages:
+            selection = .community
         }
     }
 
@@ -114,7 +136,25 @@ struct HomeView: View {
             .scrollIndicators(.hidden)
             .background(FormaBackground())
             .toolbar(.hidden, for: .navigationBar)
+            .onChange(of: model.pendingDeepLink, initial: true) { _, link in
+                handleDeepLink(link)
+            }
         }
+    }
+
+    private func handleDeepLink(_ link: AppDeepLink?) {
+        guard link == .startWorkout else { return }
+        model.consumeDeepLink(.startWorkout)
+        guard model.activeWorkout == nil else { return }
+        guard let day = model.todayDay, !day.isRestDay, !day.exercises.isEmpty else {
+            startError = "There is no workout planned for today."
+            return
+        }
+        guard TrainingStats.sessionsOnDay(model.sessions, date: Date()).isEmpty else {
+            startError = "Today's session is already complete."
+            return
+        }
+        start(day)
     }
 
     // MARK: - Header

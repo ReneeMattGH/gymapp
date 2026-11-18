@@ -9,6 +9,13 @@
 /* Begin PBXBuildFile section */
 		A10000000000000000000001 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000011 /* Supabase */; };
 		A10000000000000000000021 /* FormaFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000020 /* FormaFlowTests.swift */; };
+		B1000000000000000000000B /* FormaWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* FormaWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B10000000000000000000012 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000F /* WidgetSnapshot.swift */; };
+		B10000000000000000000013 /* WidgetSharedDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000010 /* WidgetSharedDataStore.swift */; };
+		B10000000000000000000014 /* WidgetTimelineLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000011 /* WidgetTimelineLogic.swift */; };
+		B10000000000000000000015 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000F /* WidgetSnapshot.swift */; };
+		B10000000000000000000016 /* WidgetSharedDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000010 /* WidgetSharedDataStore.swift */; };
+		B10000000000000000000017 /* WidgetTimelineLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000011 /* WidgetTimelineLogic.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -26,6 +33,13 @@
 			remoteGlobalIDString = A10000000000000000000007;
 			remoteInfo = Forma;
 		};
+		B1000000000000000000000D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000000000000000000009 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B10000000000000000000001;
+			remoteInfo = FormaWidgets;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
@@ -33,6 +47,10 @@
 		A10000000000000000000015 /* FormaUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FormaUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000020 /* FormaFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormaFlowTests.swift; sourceTree = "<group>"; };
 		A20000000000000000000001 /* FormaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FormaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000000000000000000002 /* FormaWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FormaWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B1000000000000000000000F /* WidgetSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshot.swift; sourceTree = "<group>"; };
+		B10000000000000000000010 /* WidgetSharedDataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSharedDataStore.swift; sourceTree = "<group>"; };
+		B10000000000000000000011 /* WidgetTimelineLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetTimelineLogic.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -43,12 +61,34 @@
 			);
 			target = A10000000000000000000007 /* Forma */;
 		};
+		B10000000000000000000018 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = B10000000000000000000001 /* FormaWidgets */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A10000000000000000000003 /* Forma */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (A10000000000000000000014 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = Forma; sourceTree = "<group>"; };
 		A20000000000000000000002 /* FormaTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = FormaTests; sourceTree = "<group>"; };
+		B10000000000000000000003 /* FormaWidgets */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (B10000000000000000000018 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = FormaWidgets; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B1000000000000000000000A /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				B1000000000000000000000B /* FormaWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A10000000000000000000004 /* Frameworks */ = {
@@ -73,6 +113,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B10000000000000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -80,6 +127,8 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000003 /* Forma */,
+				B10000000000000000000003 /* FormaWidgets */,
+				B1000000000000000000000E /* Shared */,
 				A10000000000000000000016 /* FormaUITests */,
 				A20000000000000000000002 /* FormaTests */,
 				A10000000000000000000006 /* Products */,
@@ -90,6 +139,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000002 /* Forma.app */,
+				B10000000000000000000002 /* FormaWidgets.appex */,
 				A10000000000000000000015 /* FormaUITests.xctest */,
 				A20000000000000000000001 /* FormaTests.xctest */,
 			);
@@ -104,6 +154,16 @@
 			path = FormaUITests;
 			sourceTree = "<group>";
 		};
+		B1000000000000000000000E /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				B1000000000000000000000F /* WidgetSnapshot.swift */,
+				B10000000000000000000010 /* WidgetSharedDataStore.swift */,
+				B10000000000000000000011 /* WidgetTimelineLogic.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -114,10 +174,12 @@
 				A10000000000000000000012 /* Sources */,
 				A10000000000000000000004 /* Frameworks */,
 				A10000000000000000000013 /* Resources */,
+				B1000000000000000000000A /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				B1000000000000000000000C /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A10000000000000000000003 /* Forma */,
@@ -169,6 +231,26 @@
 			productReference = A20000000000000000000001 /* FormaTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		B10000000000000000000001 /* FormaWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B10000000000000000000007 /* Build configuration list for PBXNativeTarget "FormaWidgets" */;
+			buildPhases = (
+				B10000000000000000000004 /* Sources */,
+				B10000000000000000000005 /* Frameworks */,
+				B10000000000000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B10000000000000000000003 /* FormaWidgets */,
+			);
+			name = FormaWidgets;
+			productName = FormaWidgets;
+			productReference = B10000000000000000000002 /* FormaWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -190,6 +272,9 @@
 						CreatedOnToolsVersion = 26.2;
 						TestTargetID = A10000000000000000000007;
 					};
+					B10000000000000000000001 = {
+						CreatedOnToolsVersion = 26.2;
+					};
 				};
 			};
 			buildConfigurationList = A1000000000000000000000A /* Build configuration list for PBXProject "Forma" */;
@@ -210,6 +295,7 @@
 			projectRoot = "";
 			targets = (
 				A10000000000000000000007 /* Forma */,
+				B10000000000000000000001 /* FormaWidgets */,
 				A10000000000000000000017 /* FormaUITests */,
 				A20000000000000000000006 /* FormaTests */,
 			);
@@ -238,6 +324,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B10000000000000000000006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -245,6 +338,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B10000000000000000000012 /* WidgetSnapshot.swift in Sources */,
+				B10000000000000000000013 /* WidgetSharedDataStore.swift in Sources */,
+				B10000000000000000000014 /* WidgetTimelineLogic.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -263,6 +359,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B10000000000000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000015 /* WidgetSnapshot.swift in Sources */,
+				B10000000000000000000016 /* WidgetSharedDataStore.swift in Sources */,
+				B10000000000000000000017 /* WidgetTimelineLogic.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -275,6 +381,11 @@
 			isa = PBXTargetDependency;
 			target = A10000000000000000000007 /* Forma */;
 			targetProxy = A20000000000000000000007 /* PBXContainerItemProxy */;
+		};
+		B1000000000000000000000C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B10000000000000000000001 /* FormaWidgets */;
+			targetProxy = B1000000000000000000000D /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -529,6 +640,58 @@
 			};
 			name = Release;
 		};
+		B10000000000000000000008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = FormaWidgets/FormaWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7G3S4PAD9L;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FormaWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = forma.coach.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		B10000000000000000000009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = FormaWidgets/FormaWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7G3S4PAD9L;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FormaWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = forma.coach.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -564,6 +727,15 @@
 			buildConfigurations = (
 				A2000000000000000000000A /* Debug */,
 				A2000000000000000000000B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B10000000000000000000007 /* Build configuration list for PBXNativeTarget "FormaWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B10000000000000000000008 /* Debug */,
+				B10000000000000000000009 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import Supabase
+import WidgetKit
 
 /// Holds Community state for the tab. Every mutation goes to the backend first;
 /// local arrays only change after the server accepts, except for a like toggle
@@ -125,6 +126,7 @@ final class CommunityStore {
             connections = payload.connections
             phase = .ready
             lastRefreshed = Date()
+            publishWidgetCounts()
         } catch {
             let message = Self.message(error)
             phase = .failed(message)
@@ -158,10 +160,26 @@ final class CommunityStore {
         if let payload = try? await service.communityBootstrap() {
             bootstrap = payload
             lastRefreshed = Date()
+            publishWidgetCounts()
         }
         _ = try? await fetchConversations(service: service)
         _ = try? await fetchNotifications(service: service)
         _ = try? await fetchConnections(service: service)
+    }
+
+    /// Shares counts only, never message or notification content, and reloads
+    /// WidgetKit only when the numbers actually changed.
+    private func publishWidgetCounts() {
+        guard let userID, let bootstrap else { return }
+        let changed = WidgetSharedDataStore.updateCommunity(
+            accountID: userID,
+            pendingRequests: bootstrap.incomingRequestCount,
+            unreadMessages: bootstrap.unreadMessages,
+            unreadNotifications: bootstrap.unreadNotifications
+        )
+        if changed {
+            WidgetCenter.shared.reloadTimelines(ofKind: FormaWidgetKind.identifier)
+        }
     }
 
     func shutdown() {
@@ -314,6 +332,7 @@ final class CommunityStore {
                 payload.incomingRequests.removeAll { $0.connectionID == request.connectionID }
                 payload.incomingRequestCount = max(0, payload.incomingRequestCount - 1)
                 bootstrap = payload
+                publishWidgetCounts()
             }
             updateMemberStatus(userID: request.userID, status: accept ? .accepted : .none)
             await loadConnections()
@@ -739,6 +758,7 @@ final class CommunityStore {
             if let payload = bootstrap {
                 bootstrap?.unreadMessages = max(0, payload.unreadMessages - conversation.unreadCount)
             }
+            publishWidgetCounts()
         } catch {
             actionError = Self.message(error)
         }

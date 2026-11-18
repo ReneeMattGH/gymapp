@@ -45,6 +45,7 @@ struct CommunityRootView: View {
     @Environment(\.formaPalette) private var palette
     @State private var store = CommunityStore()
     @State private var section: CommunitySection = .home
+    @State private var path = NavigationPath()
     @State private var showReportFor: CommunityReportPayload?
 
     private var isAvailable: Bool {
@@ -52,7 +53,7 @@ struct CommunityRootView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if isAvailable {
                     content
@@ -67,6 +68,10 @@ struct CommunityRootView: View {
         }
         .task(id: model.user?.id) {
             await store.configure(service: model.communityService, userID: model.user?.id)
+            applyDeepLink(model.pendingDeepLink)
+        }
+        .onChange(of: model.pendingDeepLink, initial: true) { _, link in
+            applyDeepLink(link)
         }
         .sheet(item: $showReportFor) { payload in
             CommunityReportSheet(
@@ -76,6 +81,27 @@ struct CommunityRootView: View {
             ) { reason, details in
                 await store.report(targetType: payload.targetType, targetID: payload.targetID, reason: reason, details: details)
             }
+        }
+    }
+
+    private func applyDeepLink(_ link: AppDeepLink?) {
+        guard isAvailable, let link else { return }
+        switch link {
+        case .community:
+            path = NavigationPath()
+            section = .home
+            model.consumeDeepLink(.community)
+        case .connectionRequests:
+            path = NavigationPath()
+            section = .connections
+            path.append(CommunityRoute.connectionRequests)
+            model.consumeDeepLink(.connectionRequests)
+        case .messages:
+            path = NavigationPath()
+            section = .messages
+            model.consumeDeepLink(.messages)
+        default:
+            break
         }
     }
 

@@ -78,6 +78,8 @@ final class AppModel {
     var isBootstrapping = true
     var authBusy = false
     var authError: String?
+    /// A widget deep link waiting for authentication, onboarding or navigation.
+    var pendingDeepLink: AppDeepLink?
 
     // Data
     var profile: Profile?
@@ -361,10 +363,12 @@ final class AppModel {
                 syncState = .local
             }
             await reconcileReminders()
+            publishWidgetSnapshot()
         } catch {
             loadError = error.localizedDescription
             if isSupabase { syncState = .offline }
             await mergePendingFormSessions(userId: user.id)
+            discardWidgetSnapshotIfAccountDiffers()
         }
         isLoadingData = false
     }
@@ -392,9 +396,11 @@ final class AppModel {
             await flushPendingFormSessions()
             lastSyncedAt = Date()
             if isSupabase, syncState != .live { syncState = .cached }
+            publishWidgetSnapshot()
         } catch {
             if isSupabase { syncState = .offline }
             await mergePendingFormSessions(userId: user.id)
+            discardWidgetSnapshotIfAccountDiffers()
         }
     }
 
@@ -464,6 +470,7 @@ final class AppModel {
         workoutError = nil
         healthSummary = nil
         healthFetched = false
+        WidgetPublisher.clear()
     }
 
     // MARK: - Auth
@@ -564,6 +571,16 @@ final class AppModel {
         service.handleAuthURL(url)
     }
 
+    func routeDeepLink(_ url: URL) {
+        guard let link = AppDeepLink.parse(url) else { return }
+        pendingDeepLink = link
+    }
+
+    func consumeDeepLink(_ link: AppDeepLink) {
+        guard pendingDeepLink == link else { return }
+        pendingDeepLink = nil
+    }
+
     func deleteAccount() async -> Bool {
         guard let auth else { return false }
         authBusy = true
@@ -645,6 +662,7 @@ final class AppModel {
             scheduledCount: scheduledCount
         )
         pendingOnboardingOutcome = outcome
+        publishWidgetSnapshot()
         return outcome
     }
 
@@ -662,6 +680,7 @@ final class AppModel {
         guard let repo else { throw FormaError.notConfigured }
         try await repo.savePreferences(next)
         preferences = next
+        publishWidgetSnapshot()
     }
 
     func saveUnits(_ units: UnitSystem) async throws {
@@ -697,6 +716,7 @@ final class AppModel {
         do {
             try await repo.savePlan(next)
             plan = next
+            publishWidgetSnapshot()
         } catch {
             planError = error.localizedDescription
             throw error
@@ -737,6 +757,7 @@ final class AppModel {
         do {
             try await repo.savePlan(copy)
             plan = copy
+            publishWidgetSnapshot()
             return copy
         } catch {
             planError = error.localizedDescription
@@ -817,6 +838,7 @@ final class AppModel {
         workoutSummary = nil
         Haptics.medium()
         await persistActiveWorkout()
+        publishWidgetSnapshot()
     }
 
     private func persistActiveWorkout() async {
@@ -1033,6 +1055,7 @@ final class AppModel {
             activeWorkout = nil
             await LocalStore.shared.clearActiveWorkout(userId: workout.userId)
             Haptics.success()
+            publishWidgetSnapshot()
         } catch {
             workoutError = error.localizedDescription
         }
@@ -1045,6 +1068,7 @@ final class AppModel {
         workoutSummary = nil
         workoutError = nil
         await LocalStore.shared.clearActiveWorkout(userId: workout.userId)
+        publishWidgetSnapshot()
     }
 
     func dismissSummary() {
@@ -1066,6 +1090,7 @@ final class AppModel {
             userId: user.id
         )
         mergeSession(session)
+        publishWidgetSnapshot()
         do {
             try await repo.saveSession(session)
             pendingFormSessionIDs.remove(session.id)
