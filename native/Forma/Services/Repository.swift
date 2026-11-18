@@ -36,13 +36,6 @@ protocol FormaRepository: Sendable {
     func getReminderSettings(userId: String) async throws -> ReminderSettings?
     func saveReminderSettings(_ settings: ReminderSettings) async throws
 
-    func listConversations(userId: String) async throws -> [CoachConversation]
-    func createConversation(_ conversation: CoachConversation) async throws
-    func updateConversation(_ conversation: CoachConversation) async throws
-    func deleteConversation(id: String) async throws
-    func listMessages(conversationId: String) async throws -> [CoachMessage]
-    func addMessage(_ message: CoachMessage) async throws
-
     func listProgressRecords(userId: String) async throws -> [ProgressRecord]
     func addProgressRecord(_ record: ProgressRecord) async throws
 }
@@ -58,18 +51,11 @@ protocol AuthProviding: Sendable {
     func deleteAccount() async throws
 }
 
-protocol AITokenProviding: Sendable {
-    func accessToken() async throws -> String
-    var anonKey: String { get }
-    var functionsURL: URL? { get }
-}
-
 /// Tables the app keeps in sync while it is open.
 enum RepositoryChange: Sendable, Equatable {
     case plan
     case sessions
     case preferences
-    case coachMessages
 }
 
 /// Emitted by a live backend. `connected` means a realtime channel is joined,

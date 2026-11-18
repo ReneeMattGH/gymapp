@@ -125,39 +125,6 @@ final class FormAnalysisSessionTests: XCTestCase {
         XCTAssertEqual(result.observations.last?.text, "Observation 7")
     }
 
-    // MARK: - Coach message
-
-    func testCoachMessageUsesMeasuredTextOnly() {
-        let measured = observation(text: "Knee angle reached about 94° at the deepest point.")
-        let text = FormAnalysisCoachMessage.make(from: summary(repCount: 8, observations: [measured]))
-
-        XCTAssertTrue(text.contains("Repetitions counted: 8"))
-        XCTAssertTrue(text.contains("Knee angle reached about 94° at the deepest point."))
-        XCTAssertTrue(text.contains("Limitations:"))
-        XCTAssertTrue(text.contains("no images or video were sent"))
-        XCTAssertTrue(text.contains("You cannot see the user"))
-        XCTAssertFalse(text.contains("base64"))
-        XCTAssertFalse(text.lowercased().contains("jpeg"))
-        XCTAssertFalse(text.lowercased().contains("keypoints"))
-    }
-
-    func testCoachMessageNeverInvitesAnInventedCount() {
-        let text = FormAnalysisCoachMessage.make(from: summary(repCount: nil))
-
-        XCTAssertTrue(text.contains("Repetitions counted: unavailable"))
-        XCTAssertTrue(text.contains("Measured observations: none reliable enough to report."))
-        XCTAssertTrue(text.contains("Do not invent measurements"))
-        XCTAssertFalse(text.contains("Repetitions counted: 0"))
-    }
-
-    func testCoachMessageExcludesLimitedObservations() {
-        let limited = observation(status: .limited, text: "Knee angle could only be measured intermittently.")
-        let text = FormAnalysisCoachMessage.make(from: summary(repCount: 2, observations: [limited]))
-
-        XCTAssertFalse(text.contains("intermittently"))
-        XCTAssertTrue(text.contains("none reliable enough to report"))
-    }
-
     // MARK: - Preview mapping
 
     func testPreviewMapperAspectFillsPortraitVideo() {

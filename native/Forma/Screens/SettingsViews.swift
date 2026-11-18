@@ -390,7 +390,7 @@ struct HealthView: View {
                 Image(systemName: "lock.shield")
                     .font(.system(size: 11))
                     .foregroundStyle(palette.textTertiary)
-                Text("Apple Health data stays on this device. It is shown only here and is never sent to the AI coach or uploaded to Forma's servers.")
+                Text("Apple Health data stays on this device. It is shown only here and is never uploaded to Forma's servers or shared with the community.")
                     .font(FormaFont.bodyFont(10.5))
                     .foregroundStyle(palette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

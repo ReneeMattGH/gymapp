@@ -80,7 +80,7 @@ struct ProfileView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes your profile, plans, sessions, coach conversations, and check-ins. It cannot be undone.")
+            Text("This removes your profile, plans, sessions, check-ins, community posts, connections, and messages. It cannot be undone.")
         }
     }
 
@@ -348,7 +348,7 @@ struct PreferencesView: View {
                 PageHeading(
                     eyebrow: "Training",
                     title: "Training profile",
-                    subtitle: "These answers shape your plan and what the coach suggests."
+                    subtitle: "These answers shape your plan, equipment choices, and schedule."
                 )
                 if let error {
                     ErrorBanner(message: error)

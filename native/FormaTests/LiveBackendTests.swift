@@ -10,6 +10,12 @@ final class LiveBackendTests: XCTestCase {
     private var email: String? { ProcessInfo.processInfo.environment["FORMA_TEST_EMAIL"] }
     private var password: String? { ProcessInfo.processInfo.environment["FORMA_TEST_PASSWORD"] }
 
+    private struct RPCResult {
+        let status: Int
+        let data: Data
+        var text: String { String(data: data, encoding: .utf8) ?? "" }
+    }
+
     private func requireLiveSetup() throws -> (String, String, String, String) {
         guard let baseURL, let anonKey, let email, let password else {
             throw XCTSkip("Live backend credentials are not configured; no real network check was performed.")
@@ -34,152 +40,132 @@ final class LiveBackendTests: XCTestCase {
         return token
     }
 
-    private func subject(from token: String) -> String? {
-        let parts = token.split(separator: ".")
-        guard parts.count >= 2 else { return nil }
-        var payload = String(parts[1])
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        while payload.count % 4 != 0 { payload += "=" }
-        guard let data = Data(base64Encoded: payload),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
-        }
-        return json["sub"] as? String
-    }
-
-    private func restRequest(
+    private func rpc(
         baseURL: String,
         anonKey: String,
         token: String,
-        path: String,
-        method: String,
-        body: [String: Any]? = nil
-    ) throws -> URLRequest {
-        var request = URLRequest(url: URL(string: "\(baseURL)/rest/v1/\(path)")!)
-        request.httpMethod = method
+        name: String,
+        body: [String: Any] = [:]
+    ) async throws -> RPCResult {
+        var request = URLRequest(url: URL(string: "\(baseURL)/rest/v1/rpc/\(name)")!)
+        request.httpMethod = "POST"
         request.setValue(anonKey, forHTTPHeaderField: "apikey")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Prefer")
-        if let body {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        }
-        return request
-    }
-
-    private func createConversation(
-        baseURL: String,
-        anonKey: String,
-        token: String,
-        userId: String
-    ) async throws -> String {
-        let id = UUID().uuidString
-        let request = try restRequest(
-            baseURL: baseURL,
-            anonKey: anonKey,
-            token: token,
-            path: "coach_conversations",
-            method: "POST",
-            body: ["id": id, "user_id": userId, "title": "Live coach test"]
-        )
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw XCTSkip(
-                "Could not create a test conversation: \(String(data: data, encoding: .utf8) ?? "no body")"
-            )
+        guard let http = response as? HTTPURLResponse else {
+            XCTFail("No HTTP response from \(name).")
+            return RPCResult(status: -1, data: data)
         }
-        return id
+        return RPCResult(status: http.statusCode, data: data)
     }
 
-    private func deleteConversation(
-        baseURL: String,
-        anonKey: String,
-        token: String,
-        conversationId: String
-    ) async {
-        guard let request = try? restRequest(
-            baseURL: baseURL,
-            anonKey: anonKey,
-            token: token,
-            path: "coach_conversations?id=eq.\(conversationId)",
-            method: "DELETE"
-        ) else { return }
-        _ = try? await URLSession.shared.data(for: request)
-    }
+    // MARK: - Bootstrap
 
-    func testCoachChatStreamsVerifiedReply() async throws {
+    func testCommunityBootstrapReturnsSignedInState() async throws {
         let (baseURL, anonKey, email, password) = try requireLiveSetup()
         let token = try await signIn(baseURL: baseURL, anonKey: anonKey, email: email, password: password)
-        let userId = try XCTUnwrap(subject(from: token), "Could not read the signed-in user id.")
-        let conversationId = try await createConversation(
+        let result = try await rpc(baseURL: baseURL, anonKey: anonKey, token: token, name: "community_bootstrap")
+        XCTAssertEqual(result.status, 200, "community_bootstrap returned \(result.status): \(result.text)")
+
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: result.data) as? [String: Any],
+            "community_bootstrap did not return a JSON object."
+        )
+        for key in [
+            "profile", "preferences", "membership", "is_admin", "suspended",
+            "members_at_gym", "nearby_members", "incoming_request_count",
+            "unread_notifications", "unread_messages", "suggestions", "nearby",
+            "incoming_requests", "connections", "feed", "areas",
+        ] {
+            XCTAssertNotNil(json[key], "community_bootstrap is missing \(key).")
+        }
+        XCTAssertTrue(json["suggestions"] is [Any], "Suggestions must be an array, even when empty.")
+        XCTAssertTrue(json["areas"] is [Any], "Areas must be an array, even when empty.")
+    }
+
+    // MARK: - Discovery privacy
+
+    func testCommunityDiscoveryExposesNoPrivateContactOrLocation() async throws {
+        let (baseURL, anonKey, email, password) = try requireLiveSetup()
+        let token = try await signIn(baseURL: baseURL, anonKey: anonKey, email: email, password: password)
+        let result = try await rpc(
             baseURL: baseURL,
             anonKey: anonKey,
             token: token,
-            userId: userId
+            name: "community_discover",
+            body: ["p_scope": "all", "p_query": "", "p_interest": "", "p_limit": 5, "p_offset": 0]
         )
-        defer {
-            Task {
-                await deleteConversation(
-                    baseURL: baseURL,
-                    anonKey: anonKey,
-                    token: token,
-                    conversationId: conversationId
+        XCTAssertEqual(result.status, 200, "community_discover returned \(result.status): \(result.text)")
+
+        let rows = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: result.data) as? [[String: Any]],
+            "community_discover did not return an array."
+        )
+        XCTAssertLessThanOrEqual(rows.count, 5, "Discovery ignored the requested page size.")
+
+        let allowed: Set<String> = [
+            "user_id", "username", "display_name", "avatar_url", "bio",
+            "interests", "workout_categories", "gym_name", "area", "city",
+            "connection_status",
+        ]
+        let forbidden = ["email", "phone", "address", "latitude", "longitude", "gps", "presence", "last_seen", "distance"]
+        let statuses: Set<String> = ["none", "pending_sent", "pending_received", "accepted", "blocked"]
+
+        for row in rows {
+            for key in row.keys {
+                XCTAssertTrue(allowed.contains(key), "Discovery leaked unexpected field \(key).")
+            }
+            for key in row.keys {
+                XCTAssertFalse(
+                    forbidden.contains(where: { key.lowercased().contains($0) }),
+                    "Discovery exposed private field \(key)."
                 )
             }
+            let status = try XCTUnwrap(row["connection_status"] as? String, "Each member needs a connection_status.")
+            XCTAssertTrue(statuses.contains(status), "Unexpected connection_status \(status).")
         }
+    }
 
-        var request = URLRequest(url: URL(string: "\(baseURL)/functions/v1/coach-chat")!)
-        request.httpMethod = "POST"
-        request.setValue(anonKey, forHTTPHeaderField: "apikey")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "conversationId": conversationId,
-            "message": "In one sentence, how should I warm up for a lower-body session?",
-        ])
+    // MARK: - Messaging enforcement
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            XCTFail("No HTTP response from coach-chat.")
-            return
-        }
-        XCTAssertEqual(http.statusCode, 200, "coach-chat returned \(http.statusCode): \(String(data: data, encoding: .utf8) ?? "")")
-        let text = String(data: data, encoding: .utf8) ?? ""
-        XCTAssertTrue(text.contains(#""type":"meta""#), "Expected a meta event with sources/cards.")
-        XCTAssertTrue(text.contains(#""type":"done""#), "Expected a terminal done event.")
+    func testCommunityMessagingRequiresAConnection() async throws {
+        let (baseURL, anonKey, email, password) = try requireLiveSetup()
+        let token = try await signIn(baseURL: baseURL, anonKey: anonKey, email: email, password: password)
+        let result = try await rpc(
+            baseURL: baseURL,
+            anonKey: anonKey,
+            token: token,
+            name: "community_messages_list",
+            body: [
+                "p_conversation_id": UUID().uuidString,
+                "p_limit": 10,
+            ]
+        )
+        XCTAssertFalse(
+            (200..<300).contains(result.status),
+            "Reading an unrelated conversation must fail. Got \(result.status): \(result.text)"
+        )
         XCTAssertTrue(
-            text.contains(#""type":"delta""#) || text.contains(#""type":"revision""#),
-            "Expected streamed answer text."
+            result.text.lowercased().contains("not available"),
+            "Expected the server to explain that the conversation is not available. Got: \(result.text)"
         )
     }
 
-    func testPlanGenerationReturnsSevenValidatedDays() async throws {
+    // MARK: - Admin enforcement
+
+    func testCommunityAdminReportsRequireAdministratorRole() async throws {
         let (baseURL, anonKey, email, password) = try requireLiveSetup()
         let token = try await signIn(baseURL: baseURL, anonKey: anonKey, email: email, password: password)
+        let result = try await rpc(baseURL: baseURL, anonKey: anonKey, token: token, name: "community_admin_reports")
 
-        var request = URLRequest(url: URL(string: "\(baseURL)/functions/v1/coach-plan")!)
-        request.httpMethod = "POST"
-        request.setValue(anonKey, forHTTPHeaderField: "apikey")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["action": "generate_plan"])
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            XCTFail("No HTTP response from coach-plan.")
-            return
+        if (200..<300).contains(result.status) {
+            throw XCTSkip("The test account has the administrator role, so the non-admin rejection cannot be exercised.")
         }
-        if http.statusCode == 400 || http.statusCode == 422 {
-            let detail = String(data: data, encoding: .utf8) ?? ""
-            throw XCTSkip("Test account cannot generate a plan yet (onboarding, preferences, or seeded exercises missing): \(detail)")
-        }
-        XCTAssertEqual(http.statusCode, 200, "coach-plan returned \(http.statusCode): \(String(data: data, encoding: .utf8) ?? "")")
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        let plan = json?["plan"] as? [String: Any]
-        let days = plan?["days"] as? [[String: Any]]
-        XCTAssertEqual(days?.count, 7, "A valid plan must contain all seven days.")
-        XCTAssertEqual(json?["knowledge"] as? String != nil, true, "Plan generation should report knowledge retrieval status.")
+        XCTAssertTrue(
+            result.text.lowercased().contains("administrator access required"),
+            "Expected the server to reject a non-admin call. Got \(result.status): \(result.text)"
+        )
     }
 }

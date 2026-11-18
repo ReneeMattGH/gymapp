@@ -60,11 +60,8 @@ final class AppModel {
     // Services
     private(set) var repository: FormaRepository?
     private(set) var auth: AuthProviding?
-    private(set) var ai: AICoachService?
     private var repo: FormaRepository? { repository }
     private var authTask: Task<Void, Never>?
-    private var coachTask: Task<Void, Never>?
-    private var coachRun = 0
     private var signalsTask: Task<Void, Never>?
     private var signalsUserId: String?
     private var refreshTask: Task<Void, Never>?
@@ -89,7 +86,6 @@ final class AppModel {
     var sessions: [WorkoutSession] = []
     var exercises: [Exercise] = []
     var reminders: ReminderSettings?
-    var conversations: [CoachConversation] = []
     var progressRecords: [ProgressRecord] = []
     var pendingOnboardingOutcome: OnboardingOutcome?
     var isCompletingOnboarding = false
@@ -113,23 +109,6 @@ final class AppModel {
     // Plan generation
     var isGeneratingPlan = false
     var planError: String?
-
-    // Coach
-    var currentConversation: CoachConversation?
-    var messages: [CoachMessage] = []
-    var coachBusy = false
-    var coachError: String?
-    var coachNotice: String?
-    var streamingText = ""
-    var isLoadingMessages = false
-    var isDeletingConversation = false
-    /// The prompt to resend when a reply failed, so retry never duplicates it.
-    private(set) var lastFailedPrompt: String?
-
-    // Daily insight
-    var dailyInsight: String?
-    var insightBusy = false
-    var insightError: String?
 
     // Reminders
     var isSavingReminders = false
@@ -185,7 +164,7 @@ final class AppModel {
                 await self.refreshRemoteData()
             }
         }
-        monitor.start(queue: DispatchQueue(label: "coach.forma.connectivity"))
+        monitor.start(queue: DispatchQueue(label: "forma.connectivity"))
         connectivityMonitor = monitor
     }
 
@@ -201,7 +180,12 @@ final class AppModel {
 
     var isPreview: Bool { mode == .preview }
     var isSupabase: Bool { mode == .supabase }
-    var prefersAI: Bool { ai != nil }
+
+    /// Nil in preview mode and whenever no backend is configured, so Community
+    /// can say honestly that it needs a real account instead of inventing data.
+    var communityService: (any CommunityServicing)? {
+        repository as? CommunityServicing
+    }
 
     var needsOnboarding: Bool {
         guard let profile else { return true }
@@ -225,38 +209,6 @@ final class AppModel {
     var lastCompletedSession: WorkoutSession? { completedSessions.first }
 
     var latestCheckIn: ProgressRecord? { progressRecords.first }
-
-    /// Quick prompts grounded in the athlete's actual plan and recent training.
-    var coachSuggestions: [String] {
-        var suggestions: [String] = []
-        if let today = todayDay, !today.isRestDay, !today.exercises.isEmpty {
-            suggestions.append("What should I focus on in today's \(today.title) session?")
-            if let first = today.exercises.first {
-                suggestions.append("Suggest an alternative to \(exerciseName(first.exerciseId)) using my equipment.")
-            }
-        } else if let next = nextDay {
-            suggestions.append("How should I prepare for my next \(next.title) session?")
-        }
-        if let last = lastCompletedSession,
-           Date().timeIntervalSince(last.startedAt) < 4 * 24 * 60 * 60 {
-            suggestions.append("Review my last workout and suggest one adjustment.")
-        }
-        if let preferences {
-            let shortened = max(15, preferences.sessionMinutes / 2)
-            suggestions.append("I only have \(shortened) minutes today. What should I prioritise?")
-        }
-        if plan == nil {
-            suggestions.append("Help me set up a weekly training plan.")
-        }
-        if suggestions.isEmpty {
-            suggestions.append(contentsOf: [
-                "How should I structure a beginner training week?",
-                "How do I warm up safely before lifting?",
-            ])
-        }
-        var seen = Set<String>()
-        return Array(suggestions.filter { seen.insert($0).inserted }.prefix(4))
-    }
 
     func exercise(_ id: String) -> Exercise? {
         exercises.first { $0.id == id } ?? ExerciseCatalog.exercise(id)
@@ -288,7 +240,6 @@ final class AppModel {
             let service = SupabaseService(url: url, anonKey: config.supabaseAnonKey)
             repository = service
             auth = service
-            ai = AICoachService(tokens: service)
             mode = .supabase
             exercises = ExerciseCatalog.all
             startAuthListener(service)
@@ -340,7 +291,6 @@ final class AppModel {
         let preview = PreviewRepository()
         repository = preview
         auth = nil
-        ai = nil
         mode = .preview
         syncState = .local
         user = AppUser(id: "preview-user", email: nil)
@@ -376,18 +326,16 @@ final class AppModel {
             async let planTask = repo.getActivePlan(userId: user.id)
             async let sessionsTask = repo.getSessions(userId: user.id)
             async let remindersTask = repo.getReminderSettings(userId: user.id)
-            async let conversationsTask = repo.listConversations(userId: user.id)
             async let progressTask = repo.listProgressRecords(userId: user.id)
 
-            let (loadedProfile, loadedPreferences, loadedPlan, loadedSessions, loadedReminders, loadedConversations, loadedProgress) =
-                try await (profileTask, preferencesTask, planTask, sessionsTask, remindersTask, conversationsTask, progressTask)
+            let (loadedProfile, loadedPreferences, loadedPlan, loadedSessions, loadedReminders, loadedProgress) =
+                try await (profileTask, preferencesTask, planTask, sessionsTask, remindersTask, progressTask)
 
             profile = loadedProfile
             preferences = loadedPreferences
             plan = loadedPlan
             sessions = loadedSessions
             reminders = loadedReminders
-            conversations = loadedConversations
             progressRecords = loadedProgress
 
             do {
@@ -421,7 +369,7 @@ final class AppModel {
         isLoadingData = false
     }
 
-    /// Pulls the coach-relevant rows without disturbing an in-progress workout.
+    /// Pulls the synced rows without disturbing an in-progress workout.
     func refreshRemoteData() async {
         guard let repo, let user else { return }
         if isSupabase, syncState == .offline { syncState = .syncing }
@@ -430,26 +378,20 @@ final class AppModel {
             async let preferencesTask = repo.getPreferences(userId: user.id)
             async let planTask = repo.getActivePlan(userId: user.id)
             async let sessionsTask = repo.getSessions(userId: user.id)
-            async let conversationsTask = repo.listConversations(userId: user.id)
             async let progressTask = repo.listProgressRecords(userId: user.id)
 
-            let (nextProfile, nextPreferences, nextPlan, nextSessions, nextConversations, nextProgress) =
-                try await (profileTask, preferencesTask, planTask, sessionsTask, conversationsTask, progressTask)
+            let (nextProfile, nextPreferences, nextPlan, nextSessions, nextProgress) =
+                try await (profileTask, preferencesTask, planTask, sessionsTask, progressTask)
 
             profile = nextProfile
             preferences = nextPreferences
             plan = nextPlan
             sessions = nextSessions
-            conversations = nextConversations
             progressRecords = nextProgress
             await mergePendingFormSessions(userId: user.id)
             await flushPendingFormSessions()
             lastSyncedAt = Date()
             if isSupabase, syncState != .live { syncState = .cached }
-            if let current = currentConversation,
-               let updated = conversations.first(where: { $0.id == current.id }) {
-                currentConversation = updated
-            }
         } catch {
             if isSupabase { syncState = .offline }
             await mergePendingFormSessions(userId: user.id)
@@ -483,7 +425,6 @@ final class AppModel {
         case .disconnected:
             if isSupabase, syncState == .live { syncState = .cached }
         case .changed(let change):
-            if change == .coachMessages, coachBusy { return }
             scheduleRefresh()
         }
     }
@@ -515,20 +456,11 @@ final class AppModel {
         plan = nil
         sessions = []
         reminders = nil
-        conversations = []
-        messages = []
-        currentConversation = nil
-        lastFailedPrompt = nil
         progressRecords = []
         pendingFormSessionIDs = []
         activeWorkout = nil
         workoutSummary = nil
         planError = nil
-        coachError = nil
-        coachNotice = nil
-        streamingText = ""
-        dailyInsight = nil
-        insightError = nil
         workoutError = nil
         healthSummary = nil
         healthFetched = false
@@ -582,7 +514,6 @@ final class AppModel {
     }
 
     func signOut() async {
-        coachTask?.cancel()
         if let auth {
             try? await auth.signOut()
         }
@@ -595,8 +526,7 @@ final class AppModel {
             mode = .setupRequired
             repository = nil
             auth = nil
-            ai = nil
-        }
+            }
     }
 
     func resetPassword(email: String) async -> String? {
@@ -650,8 +580,7 @@ final class AppModel {
             if isPreview {
                 mode = .setupRequired
                 repository = nil
-                ai = nil
-            }
+                    }
             return true
         } catch {
             authError = error.localizedDescription
@@ -751,39 +680,6 @@ final class AppModel {
             throw FormaError.message("The exercise library could not be loaded, so a plan could not be built.")
         }
         return plan
-    }
-
-    func requestAIPlan() async throws -> WorkoutPlan {
-        guard let ai, let user, let profile, let preferences else {
-            throw FormaError.message("The AI plan generator needs a connected Supabase project and a completed profile.")
-        }
-        isGeneratingPlan = true
-        planError = nil
-        defer { isGeneratingPlan = false }
-        do {
-            let payload = try await ai.requestPlan()
-            guard let draft = PlanGenerator.planFromAIPayload(
-                payload,
-                userId: user.id,
-                profile: profile,
-                preferences: preferences
-            ) else {
-                throw FormaError.message("The AI plan did not contain a usable training day. Try again.")
-            }
-            let issues = PlanValidator.issues(
-                for: draft,
-                profile: profile,
-                preferences: preferences,
-                catalog: exercises.isEmpty ? ExerciseCatalog.all : exercises
-            )
-            if let problem = PlanValidator.firstError(in: issues) {
-                throw FormaError.message("The AI plan did not pass validation: \(problem) Try again.")
-            }
-            return draft
-        } catch {
-            planError = error.localizedDescription
-            throw error
-        }
     }
 
     func adoptPlan(_ next: WorkoutPlan) async throws {
@@ -1230,270 +1126,6 @@ final class AppModel {
                 break
             }
         }
-    }
-
-    // MARK: - Coach
-
-    func newConversation() {
-        coachTask?.cancel()
-        coachRun += 1
-        currentConversation = nil
-        messages = []
-        coachError = nil
-        coachNotice = nil
-        lastFailedPrompt = nil
-        streamingText = ""
-        coachBusy = false
-    }
-
-    /// Deletes the open conversation and its messages, then starts fresh. This
-    /// also clears the server-side rolling summary because it belongs to that row.
-    func clearConversation() async {
-        guard let repo, let conversation = currentConversation else {
-            newConversation()
-            return
-        }
-        isDeletingConversation = true
-        do {
-            try await repo.deleteConversation(id: conversation.id)
-            conversations.removeAll { $0.id == conversation.id }
-            newConversation()
-        } catch {
-            coachError = error.localizedDescription
-        }
-        isDeletingConversation = false
-    }
-
-    func openConversation(_ conversation: CoachConversation) async {
-        guard let repo else { return }
-        coachTask?.cancel()
-        coachRun += 1
-        currentConversation = conversation
-        messages = []
-        coachError = nil
-        coachNotice = nil
-        lastFailedPrompt = nil
-        streamingText = ""
-        isLoadingMessages = true
-        do {
-            messages = try await repo.listMessages(conversationId: conversation.id)
-        } catch {
-            coachError = error.localizedDescription
-        }
-        isLoadingMessages = false
-    }
-
-    func deleteConversation(_ conversation: CoachConversation) async {
-        guard let repo else { return }
-        isDeletingConversation = true
-        do {
-            try await repo.deleteConversation(id: conversation.id)
-            conversations.removeAll { $0.id == conversation.id }
-            if currentConversation?.id == conversation.id {
-                newConversation()
-            }
-        } catch {
-            coachError = error.localizedDescription
-        }
-        isDeletingConversation = false
-    }
-
-    func submitCoachMessage(_ raw: String) {
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !coachBusy else { return }
-        coachTask?.cancel()
-        coachRun += 1
-        let run = coachRun
-        lastFailedPrompt = nil
-        coachTask = Task { [weak self] in
-            await self?.sendCoachMessage(text, persistUserMessage: true, run: run)
-        }
-    }
-
-    /// Resends the prompt that failed without appending a second copy of it.
-    func retryLastCoachMessage() {
-        guard let text = lastFailedPrompt, !coachBusy else { return }
-        coachTask?.cancel()
-        coachRun += 1
-        let run = coachRun
-        coachTask = Task { [weak self] in
-            await self?.sendCoachMessage(text, persistUserMessage: false, run: run)
-        }
-    }
-
-    func stopCoachReply() {
-        coachTask?.cancel()
-        coachTask = nil
-        coachRun += 1
-        coachBusy = false
-        streamingText = ""
-        coachNotice = "Response stopped."
-    }
-
-    private func sendCoachMessage(_ text: String, persistUserMessage: Bool, run: Int) async {
-        guard let repo = repository, let user else { return }
-        coachBusy = true
-        coachError = nil
-        coachNotice = nil
-        streamingText = ""
-        lastFailedPrompt = nil
-
-        do {
-            var conversation = currentConversation
-            if conversation == nil {
-                let now = Date()
-                let title = text.count > 58 ? String(text.prefix(57)) + "…" : text
-                let created = CoachConversation(
-                    id: IDs.uuid(),
-                    userId: user.id,
-                    title: title,
-                    createdAt: now,
-                    updatedAt: now
-                )
-                try await repo.createConversation(created)
-                conversation = created
-                currentConversation = created
-                conversations.insert(created, at: 0)
-            }
-            guard let conversation else { return }
-
-            if persistUserMessage {
-                let userMessage = CoachMessage(
-                    id: IDs.uuid(),
-                    conversationId: conversation.id,
-                    userId: user.id,
-                    role: .user,
-                    content: text,
-                    createdAt: Date()
-                )
-                try await repo.addMessage(userMessage)
-                messages.append(userMessage)
-            }
-
-            let assistant: CoachMessage
-            if let ai {
-                let reply = try await ai.streamReply(
-                    conversationId: conversation.id,
-                    message: text,
-                    onDelta: { [weak self] chunk in
-                        self?.streamingText += chunk
-                    },
-                    onRevision: { [weak self] revised in
-                        // The server replaced a draft after citation/safety checks.
-                        self?.streamingText = revised
-                    }
-                )
-                try Task.checkCancellation()
-                guard run == coachRun else { return }
-                if let problem = AIResponseValidator.problem(with: reply.text) {
-                    throw CoachStreamFailure.message(problem)
-                }
-                if let messageId = reply.messageId {
-                    // The Edge Function already persisted this reply with its sources.
-                    assistant = CoachMessage(
-                        id: messageId,
-                        conversationId: conversation.id,
-                        userId: user.id,
-                        role: .assistant,
-                        content: reply.text,
-                        createdAt: reply.createdAt,
-                        sources: reply.sources,
-                        cards: reply.cards,
-                        unverified: reply.unverified,
-                        intent: reply.intent
-                    )
-                } else {
-                    assistant = CoachMessage(
-                        id: IDs.uuid(),
-                        conversationId: conversation.id,
-                        userId: user.id,
-                        role: .assistant,
-                        content: reply.text,
-                        createdAt: reply.createdAt,
-                        sources: reply.sources,
-                        cards: reply.cards,
-                        unverified: reply.unverified,
-                        intent: reply.intent
-                    )
-                    do {
-                        try await repo.addMessage(assistant)
-                    } catch {
-                        coachNotice = "The reply is shown here, but it could not be saved to your account."
-                    }
-                }
-            } else {
-                guard let profile, let preferences else {
-                    throw FormaError.message("Complete onboarding before asking the coach.")
-                }
-                let reply = LocalCoach.reply(
-                    to: text,
-                    profile: profile,
-                    preferences: preferences,
-                    plan: plan,
-                    sessions: sessions,
-                    exercises: exercises
-                )
-                if let problem = AIResponseValidator.problem(with: reply) {
-                    throw CoachStreamFailure.message(problem)
-                }
-                assistant = CoachMessage(
-                    id: IDs.uuid(),
-                    conversationId: conversation.id,
-                    userId: user.id,
-                    role: .assistant,
-                    content: reply,
-                    createdAt: Date(),
-                    sources: []
-                )
-                try await repo.addMessage(assistant)
-            }
-
-            guard run == coachRun else { return }
-            messages.append(assistant)
-
-            var updated = conversation
-            updated.updatedAt = assistant.createdAt
-            try? await repo.updateConversation(updated)
-            currentConversation = updated
-            if let index = conversations.firstIndex(where: { $0.id == updated.id }) {
-                conversations[index] = updated
-            }
-            conversations.sort { $0.updatedAt > $1.updatedAt }
-        } catch is CancellationError {
-            if run == coachRun { coachNotice = "Response stopped." }
-        } catch let failure as CoachStreamFailure {
-            if run == coachRun {
-                if case .blocked(let message) = failure {
-                    coachNotice = message
-                } else {
-                    coachError = failure.localizedDescription
-                    lastFailedPrompt = text
-                }
-            }
-        } catch let error as URLError where error.code == .cancelled {
-            if run == coachRun { coachNotice = "Response stopped." }
-        } catch {
-            if run == coachRun {
-                coachError = error.localizedDescription
-                lastFailedPrompt = text
-            }
-        }
-
-        guard run == coachRun else { return }
-        streamingText = ""
-        coachBusy = false
-    }
-
-    func requestDailyInsight() async {
-        guard let ai else { return }
-        insightBusy = true
-        insightError = nil
-        do {
-            dailyInsight = try await ai.dailyInsight()
-        } catch {
-            insightError = error.localizedDescription
-        }
-        insightBusy = false
     }
 
     // MARK: - Progress

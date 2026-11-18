@@ -24,7 +24,7 @@ struct AuthView: View {
                     Text("Train with intention.")
                         .font(FormaFont.displayFont(34, weight: .bold))
                         .foregroundStyle(palette.text)
-                    Text("Forma builds a plan around your equipment, schedule, and experience — then coaches you through it.")
+                    Text("Forma builds a plan around your equipment, schedule, and experience — then tracks every session and connects you with your gym community.")
                         .font(FormaFont.bodyFont(14))
                         .foregroundStyle(palette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -36,7 +36,7 @@ struct AuthView: View {
                     if mode == .create {
                         FormaTextField(
                             label: "Name",
-                            placeholder: "What should the coach call you?",
+                            placeholder: "What should we call you?",
                             text: $name,
                             capitalization: .words,
                             contentType: .name
@@ -87,7 +87,7 @@ struct AuthView: View {
                         Image(systemName: "lock.shield")
                             .foregroundStyle(palette.accentText)
                             .font(.system(size: 15))
-                        Text("Your account and training data live in your Supabase project, protected by row-level security. Forma never stores an AI or service key in the app.")
+                        Text("Your account and training data live in your Supabase project, protected by row-level security. Forma never stores a service-role key in the app.")
                             .font(FormaFont.bodyFont(12))
                             .foregroundStyle(palette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)

@@ -21,7 +21,7 @@ final class FormaFlowTests: XCTestCase {
         XCTAssertTrue(explore.waitForExistence(timeout: 5))
         explore.tap()
 
-        let nameField = app.textFields["What should the coach call you?"]
+        let nameField = app.textFields["What should we call you?"]
         XCTAssertTrue(nameField.waitForExistence(timeout: 15), "Onboarding did not appear")
         nameField.tap()
         nameField.typeText("Matt")
@@ -60,7 +60,7 @@ final class FormaFlowTests: XCTestCase {
         let homeTab = app.tabBars.buttons["Home"]
         XCTAssertTrue(homeTab.waitForExistence(timeout: 10), "Main tabs did not appear")
 
-        let tabNames = ["Home", "Workouts", "Coach", "Progress", "Profile"]
+        let tabNames = ["Home", "Workouts", "Community", "Progress", "Profile"]
         for (index, name) in tabNames.enumerated() {
             app.tabBars.buttons[name].tap()
             sleep(1)
@@ -101,16 +101,18 @@ final class FormaFlowTests: XCTestCase {
         sleep(1)
         snap("23-progress-after-workout")
 
-        app.tabBars.buttons["Coach"].tap()
+        app.tabBars.buttons["Community"].tap()
+        sleep(2)
+        XCTAssertTrue(
+            app.staticTexts["Community is off in preview mode"].waitForExistence(timeout: 10),
+            "Preview Community must honestly explain that no real members exist"
+        )
+        XCTAssertTrue(
+            app.staticTexts["It does not create sample members, posts or messages to fill space."].exists,
+            "Preview Community must state that no sample data is generated"
+        )
         sleep(1)
-        let composer = app.textFields["Ask about training, form, or recovery…"]
-        if composer.waitForExistence(timeout: 5) {
-            composer.tap()
-            composer.typeText("What should I focus on today?")
-            app.buttons["Send message"].tap()
-            sleep(4)
-            snap("24-coach-reply")
-        }
+        snap("24-community-preview")
 
         app.tabBars.buttons["Profile"].tap()
         sleep(1)

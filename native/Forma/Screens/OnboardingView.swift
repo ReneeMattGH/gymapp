@@ -22,7 +22,10 @@ struct OnboardingView: View {
     @State private var error: String?
     @State private var finishing = false
 
-    private let totalSteps = 7
+    private var totalSteps: Int { communityStepAvailable ? 8 : 7 }
+    private var communityStepAvailable: Bool {
+        model.communityService != nil && model.user != nil && !model.isPreview
+    }
     private static let durations = [20, 30, 45, 60, 75]
     private static let reminderTimes = ["07:00", "08:00", "12:00", "17:30", "18:00", "19:00", "20:00"]
 
@@ -138,6 +141,12 @@ struct OnboardingView: View {
         case 3: scheduleStep
         case 4: equipmentStep
         case 5: preferencesStep
+        case 6:
+            if communityStepAvailable, let service = model.communityService {
+                OnboardingCommunityStep(service: service)
+            } else {
+                reviewStep
+            }
         default: reviewStep
         }
     }
@@ -153,7 +162,7 @@ struct OnboardingView: View {
             )
             FormaTextField(
                 label: "Name",
-                placeholder: "What should the coach call you?",
+                placeholder: "What should we call you?",
                 text: $name,
                 capitalization: .words,
                 contentType: .name
@@ -388,7 +397,7 @@ struct OnboardingView: View {
             StepIntro(
                 eyebrow: "Review",
                 title: "Ready to build your base.",
-                subtitle: "Your plan will be generated on-device from these answers. You can regenerate with AI later."
+                subtitle: "Your plan will be generated on-device from these answers. You can rebuild it any time."
             )
             FormaCard {
                 reviewRow(icon: "sparkles", label: "Name", value: "\(name.trimmingCharacters(in: .whitespacesAndNewlines)), \(age)")
@@ -642,6 +651,193 @@ struct OnboardingView: View {
     }
 }
 
+// MARK: - Optional community step
+
+private struct OnboardingCommunityStep: View {
+    var service: any CommunityServicing
+
+    @Environment(\.formaPalette) private var palette
+    @State private var query = ""
+    @State private var gyms: [GymSummary] = []
+    @State private var areas: [CommunityArea] = []
+    @State private var loading = true
+    @State private var busy = false
+    @State private var error: String?
+    @State private var selection: String?
+    @State private var loaded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.xl) {
+            StepIntro(
+                eyebrow: "Community (optional)",
+                title: "Find people who train nearby.",
+                subtitle: "Choose a gym or area to discover other members of the fitness community. Your selection does not reveal your live location or confirm that you are currently at that gym."
+            )
+
+            if let selection {
+                NoticeBanner(
+                    message: "Selected \(selection). You can change or remove this later in Community.",
+                    systemImage: "checkmark.circle",
+                    accent: true
+                )
+            }
+
+            FormaTextField(
+                label: "Search gyms",
+                placeholder: "Gym name or city",
+                text: $query,
+                capitalization: .words
+            )
+            .onChange(of: query) { _, value in
+                Task {
+                    try? await Task.sleep(for: .milliseconds(350))
+                    guard !Task.isCancelled else { return }
+                    await searchGyms(value)
+                }
+            }
+
+            if loading {
+                LoadingCard(label: "Loading gyms and areas")
+            } else {
+                if gyms.isEmpty {
+                    Text("No verified gyms match yet. You can request one later from Community settings.")
+                        .font(FormaFont.bodyFont(13))
+                        .foregroundStyle(palette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(gyms.prefix(8)) { gym in
+                            gymRow(gym)
+                            if gym.id != gyms.prefix(8).last?.id {
+                                FormaDivider()
+                            }
+                        }
+                    }
+                }
+
+                if !areas.isEmpty {
+                    VStack(alignment: .leading, spacing: Spacing.sm) {
+                        Text("Or choose an area")
+                            .font(FormaFont.bodyFont(11, weight: .semibold))
+                            .tracking(1.4)
+                            .foregroundStyle(palette.textSecondary)
+                        FlowLayout(spacing: Spacing.sm, lineSpacing: Spacing.sm) {
+                            ForEach(areas.prefix(12)) { area in
+                                FormaChip(
+                                    label: "\(area.area), \(area.city)",
+                                    selected: selection == "\(area.area), \(area.city)"
+                                ) {
+                                    Task { await chooseArea(area) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let error {
+                ErrorBanner(message: error)
+            }
+
+            OnboardingNote(
+                icon: "location.slash",
+                text: "Community is optional. Skip this and choose a gym or area later. Forma does not request location permission for Community."
+            )
+        }
+        .task { await load() }
+    }
+
+    private func gymRow(_ gym: GymSummary) -> some View {
+        HStack(spacing: Spacing.md) {
+            Image(systemName: "building.2")
+                .font(.system(size: 14))
+                .foregroundStyle(palette.accentText)
+                .frame(width: 32, height: 32)
+                .background(palette.accentSoft, in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(gym.name)
+                    .font(FormaFont.bodyFont(14, weight: .semibold))
+                    .foregroundStyle(palette.text)
+                Text([gym.area, gym.city].compactMap { $0 }.joined(separator: ", "))
+                    .font(FormaFont.bodyFont(11))
+                    .foregroundStyle(palette.textSecondary)
+            }
+            Spacer(minLength: Spacing.sm)
+            if selection == gym.name {
+                TagLabel(text: "Selected", color: palette.success)
+            } else {
+                Button {
+                    Task { await join(gym) }
+                } label: {
+                    Group {
+                        if busy {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Text("Choose")
+                                .font(FormaFont.bodyFont(12, weight: .semibold))
+                        }
+                    }
+                    .foregroundStyle(palette.accentInk)
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, 6)
+                    .background(palette.accent, in: Capsule())
+                }
+                .buttonStyle(PressableScaleStyle())
+                .disabled(busy)
+            }
+        }
+        .padding(.vertical, Spacing.sm)
+    }
+
+    private func load() async {
+        guard !loaded else { return }
+        loaded = true
+        loading = true
+        do {
+            async let bootstrap = service.communityBootstrap()
+            async let results = service.communitySearchGyms(query: "", limit: 30, offset: 0)
+            areas = try await bootstrap.areas
+            gyms = try await results
+        } catch {
+            self.error = error.localizedDescription
+        }
+        loading = false
+    }
+
+    private func searchGyms(_ value: String) async {
+        do {
+            gyms = try await service.communitySearchGyms(query: value, limit: 30, offset: 0)
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func join(_ gym: GymSummary) async {
+        busy = true
+        error = nil
+        do {
+            try await service.communityJoinGym(id: gym.id)
+            selection = gym.name
+        } catch {
+            self.error = error.localizedDescription
+        }
+        busy = false
+    }
+
+    private func chooseArea(_ area: CommunityArea) async {
+        busy = true
+        error = nil
+        do {
+            try await service.communityLeaveGym()
+            try await service.communitySetArea(city: area.city, area: area.area)
+            selection = "\(area.area), \(area.city)"
+        } catch {
+            self.error = error.localizedDescription
+        }
+        busy = false
+    }
+}
+
 // MARK: - Plan ready
 
 struct PlanReadyView: View {
@@ -725,8 +921,8 @@ struct PlanReadyView: View {
                 NoticeBanner(message: outcome.reminderMessage, systemImage: "bell", accent: true)
 
                 Text(model.isPreview
-                     ? "Preview build: everything is stored on this device. Connect Supabase to sync and enable the live AI coach."
-                     : "Generated on-device from your answers. Open Workouts to regenerate with the AI coach whenever you like.")
+                     ? "Preview build: everything is stored on this device. Connect Supabase to sync across devices."
+                     : "Generated on-device from your answers. Open Workouts to rebuild it whenever your schedule changes.")
                     .font(FormaFont.bodyFont(11))
                     .foregroundStyle(palette.textTertiary)
                     .multilineTextAlignment(.center)

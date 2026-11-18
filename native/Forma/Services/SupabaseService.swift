@@ -3,21 +3,13 @@ import Supabase
 
 /// Live repository backed by Supabase. Auth session tokens stay in the SDK's
 /// keychain storage; no service-role key or AI key ever ships in the app.
-final class SupabaseService: FormaRepository, AuthProviding, AITokenProviding {
+final class SupabaseService: FormaRepository, AuthProviding {
     let kind: RepositoryKind = .supabase
 
-    private let client: SupabaseClient
-    private let baseURL: URL
-    let anonKey: String
+    let client: SupabaseClient
 
     init(url: URL, anonKey: String) {
-        self.baseURL = url
-        self.anonKey = anonKey
         self.client = SupabaseClient(supabaseURL: url, supabaseKey: anonKey)
-    }
-
-    var functionsURL: URL? {
-        baseURL.appendingPathComponent("functions/v1")
     }
 
     // MARK: - Helpers
@@ -115,14 +107,6 @@ final class SupabaseService: FormaRepository, AuthProviding, AITokenProviding {
             throw Self.mapError(error)
         }
         try? await client.auth.signOut()
-    }
-
-    func accessToken() async throws -> String {
-        do {
-            return try await client.auth.session.accessToken
-        } catch {
-            throw FormaError.notAuthenticated
-        }
     }
 
     func handleAuthURL(_ url: URL) {
@@ -610,124 +594,6 @@ final class SupabaseService: FormaRepository, AuthProviding, AITokenProviding {
         }
     }
 
-    // MARK: - Coach
-
-    func listConversations(userId: String) async throws -> [CoachConversation] {
-        do {
-            let rows: [ConversationRow] = try await client
-                .from("coach_conversations")
-                .select()
-                .eq("user_id", value: userId)
-                .order("updated_at", ascending: false)
-                .execute()
-                .value
-            return rows.map {
-                CoachConversation(
-                    id: $0.id,
-                    userId: $0.user_id,
-                    title: $0.title,
-                    createdAt: Self.date($0.created_at),
-                    updatedAt: Self.date($0.updated_at)
-                )
-            }
-        } catch {
-            throw Self.mapError(error)
-        }
-    }
-
-    func createConversation(_ conversation: CoachConversation) async throws {
-        do {
-            try await client.from("coach_conversations").insert(ConversationInsert(
-                id: conversation.id,
-                user_id: conversation.userId,
-                title: conversation.title,
-                created_at: FormaDate.string(conversation.createdAt),
-                updated_at: FormaDate.string(conversation.updatedAt)
-            )).execute()
-        } catch {
-            throw Self.mapError(error)
-        }
-    }
-
-    func updateConversation(_ conversation: CoachConversation) async throws {
-        do {
-            try await client
-                .from("coach_conversations")
-                .update(ConversationUpdate(title: conversation.title, updated_at: FormaDate.string(conversation.updatedAt)))
-                .eq("id", value: conversation.id)
-                .execute()
-        } catch {
-            throw Self.mapError(error)
-        }
-    }
-
-    func deleteConversation(id: String) async throws {
-        do {
-            try await client.from("coach_conversations").delete().eq("id", value: id).execute()
-        } catch {
-            throw Self.mapError(error)
-        }
-    }
-
-    func listMessages(conversationId: String) async throws -> [CoachMessage] {
-        do {
-            let rows: [MessageRow] = try await client
-                .from("coach_messages")
-                .select()
-                .eq("conversation_id", value: conversationId)
-                .order("created_at", ascending: true)
-                .execute()
-                .value
-            return rows.map {
-                CoachMessage(
-                    id: $0.id,
-                    conversationId: $0.conversation_id,
-                    userId: $0.user_id,
-                    role: CoachMessage.Role(rawValue: $0.role) ?? .assistant,
-                    content: $0.content,
-                    createdAt: Self.date($0.created_at),
-                    sources: ($0.metadata?.sources ?? []).map {
-                        CoachSource(
-                            id: $0.id,
-                            name: $0.name,
-                            category: $0.category ?? "strength",
-                            kind: $0.kind ?? "exercise",
-                            url: $0.url,
-                            publishedAt: $0.publishedAt,
-                            publisher: $0.publisher
-                        )
-                    },
-                    cards: $0.metadata?.cards ?? [],
-                    unverified: $0.metadata?.unverified ?? false,
-                    intent: $0.metadata?.intent
-                )
-            }
-        } catch {
-            throw Self.mapError(error)
-        }
-    }
-
-    func addMessage(_ message: CoachMessage) async throws {
-        do {
-            try await client.from("coach_messages").insert(MessageInsert(
-                id: message.id,
-                conversation_id: message.conversationId,
-                user_id: message.userId,
-                role: message.role.rawValue,
-                content: message.content,
-                created_at: FormaDate.string(message.createdAt),
-                metadata: MessageMetadataInsert(
-                    sources: message.sources,
-                    cards: message.cards,
-                    unverified: message.unverified,
-                    intent: message.intent
-                )
-            )).execute()
-        } catch {
-            throw Self.mapError(error)
-        }
-    }
-
     // MARK: - Progress
 
     func listProgressRecords(userId: String) async throws -> [ProgressRecord] {
@@ -802,19 +668,10 @@ extension SupabaseService: RealtimeProviding {
                 ) { _ in
                     continuation.yield(.changed(.preferences))
                 }
-                let messageToken = channel.onPostgresChange(
-                    AnyAction.self,
-                    schema: "public",
-                    table: "coach_messages",
-                    filter: .eq("user_id", value: userId)
-                ) { _ in
-                    continuation.yield(.changed(.coachMessages))
-                }
                 defer {
                     planToken.cancel()
                     sessionToken.cancel()
                     preferenceToken.cancel()
-                    messageToken.cancel()
                 }
 
                 do {
@@ -970,41 +827,6 @@ private struct ReminderRow: Decodable {
     var scheduled_ids: [String]?
 }
 
-private struct ConversationRow: Decodable {
-    var id: String
-    var user_id: String
-    var title: String
-    var created_at: String
-    var updated_at: String?
-}
-
-private struct MessageRow: Decodable {
-    struct Source: Decodable {
-        var id: String
-        var name: String
-        var category: String?
-        var kind: String?
-        var url: String?
-        var publishedAt: String?
-        var publisher: String?
-    }
-
-    struct Metadata: Decodable {
-        var sources: [Source]?
-        var cards: [CoachCard]?
-        var unverified: Bool?
-        var intent: String?
-    }
-
-    var id: String
-    var conversation_id: String
-    var user_id: String
-    var role: String
-    var content: String
-    var created_at: String
-    var metadata: Metadata?
-}
-
 private struct ProgressRow: Decodable {
     var id: String
     var user_id: String
@@ -1133,63 +955,6 @@ private struct ReminderUpsert: Encodable {
     var hydration_reminders: Bool
     var weekly_progress_reminder: Bool
     var scheduled_ids: [String]
-}
-
-private struct ConversationInsert: Encodable {
-    var id: String
-    var user_id: String
-    var title: String
-    var created_at: String
-    var updated_at: String
-}
-
-private struct ConversationUpdate: Encodable {
-    var title: String
-    var updated_at: String
-}
-
-private struct MessageInsert: Encodable {
-    var id: String
-    var conversation_id: String
-    var user_id: String
-    var role: String
-    var content: String
-    var created_at: String
-    var metadata: MessageMetadataInsert
-}
-
-private struct MessageMetadataInsert: Encodable {
-    struct Source: Encodable {
-        var id: String
-        var name: String
-        var category: String
-        var kind: String
-        var url: String?
-        var publishedAt: String?
-        var publisher: String?
-    }
-
-    var sources: [Source]
-    var cards: [CoachCard]
-    var unverified: Bool
-    var intent: String?
-
-    init(sources: [CoachSource], cards: [CoachCard], unverified: Bool, intent: String?) {
-        self.sources = sources.map {
-            Source(
-                id: $0.id,
-                name: $0.name,
-                category: $0.category,
-                kind: $0.kind,
-                url: $0.url,
-                publishedAt: $0.publishedAt,
-                publisher: $0.publisher
-            )
-        }
-        self.cards = cards
-        self.unverified = unverified
-        self.intent = intent
-    }
 }
 
 private struct ProgressInsert: Encodable {

@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum AppTab: Hashable {
-    case home, workouts, coach, progress, profile
+    case home, workouts, community, progress, profile
 }
 
 struct MainTabView: View {
@@ -19,9 +19,9 @@ struct MainTabView: View {
                 .tabItem { Label("Workouts", systemImage: "dumbbell") }
                 .tag(AppTab.workouts)
 
-            CoachView()
-                .tabItem { Label("Coach", systemImage: "sparkles") }
-                .tag(AppTab.coach)
+            CommunityRootView()
+                .tabItem { Label("Community", systemImage: "person.2") }
+                .tag(AppTab.community)
 
             ProgressView()
                 .tabItem { Label("Progress", systemImage: "chart.line.uptrend.xyaxis") }
@@ -89,7 +89,7 @@ struct HomeView: View {
                     header
                     if model.isPreview {
                         NoticeBanner(
-                            message: "Preview build: data stays on this device. Connect Supabase to sync and enable the live AI coach.",
+                            message: "Preview build: training data stays on this device. Connect Supabase to sync and join the community.",
                             systemImage: "testtube.2"
                         )
                     }
@@ -98,9 +98,6 @@ struct HomeView: View {
                     }
                     todaySection
                     weekSection
-                    if model.prefersAI {
-                        insightSection
-                    }
                     quickActions
                     recentSection
                     Text("Forma provides general fitness guidance, not medical advice. Stop if you feel pain, dizziness, or unusual shortness of breath.")
@@ -362,49 +359,6 @@ struct HomeView: View {
             Text(label)
                 .font(FormaFont.bodyFont(10))
                 .foregroundStyle(palette.textTertiary)
-        }
-    }
-
-    // MARK: - Insight
-
-    private var insightSection: some View {
-        FormaCard(style: .raised) {
-            HStack {
-                Overline(text: "Coach insight")
-                Spacer()
-                Image(systemName: "sparkles")
-                    .font(.system(size: 13))
-                    .foregroundStyle(palette.accentText)
-            }
-            if let insight = model.dailyInsight, !insight.isEmpty {
-                Text(insight)
-                    .font(FormaFont.bodyFont(13.5))
-                    .foregroundStyle(palette.text)
-                    .fixedSize(horizontal: false, vertical: true)
-                TextButton(title: model.insightBusy ? "Refreshing…" : "Refresh insight") {
-                    Task { await model.requestDailyInsight() }
-                }
-            } else if model.insightBusy {
-                HStack(spacing: Spacing.sm) {
-                    ProgressView().tint(palette.accentText)
-                    Text("Reading your training week…")
-                        .font(FormaFont.bodyFont(12))
-                        .foregroundStyle(palette.textSecondary)
-                }
-            } else {
-                Text("A short, context-aware read on your training week from the AI coach.")
-                    .font(FormaFont.bodyFont(12.5))
-                    .foregroundStyle(palette.textSecondary)
-                SecondaryButton(title: "Get today's insight", systemImage: "sparkles") {
-                    Task { await model.requestDailyInsight() }
-                }
-            }
-            if let error = model.insightError {
-                Text(error)
-                    .font(FormaFont.bodyFont(11))
-                    .foregroundStyle(palette.danger)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
     }
 

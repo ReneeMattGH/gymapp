@@ -1,12 +1,12 @@
 # Forma
 
-Forma is a native iOS AI personal gym coach written in SwiftUI. It turns a short
+Forma is a native iOS training app written in SwiftUI. It turns a short
 onboarding into a personal training plan, runs workouts with a live rest timer,
-records every set, and reflects the results in progress analytics. The coach is
-grounded in the athlete's own profile, plan, and training history, and in a
-curated fitness knowledge base plus optional live web retrieval. A camera form
-check tracks body joints on-device with Apple Vision and reports only what it
-can measure.
+records every set, and reflects the results in progress analytics. Community
+lets people who chose the same gym or area find each other, connect, post, and
+message — using only real registered accounts and real backend records. A camera
+form check tracks body joints on-device with Apple Vision and reports only what
+it can measure.
 
 > Forma is training software, not medical care. It does not diagnose or treat
 > injuries, and it tells the athlete to stop and seek a professional when they
@@ -16,19 +16,15 @@ can measure.
 
 ```
 native/                Native SwiftUI app (the shipping client)
-  Forma/               App sources: Core, UI, Store, Services, FormAnalysis,
-                       Screens, Resources
+  Forma/               App sources: Core, UI, Store, Services, Community,
+                       FormAnalysis, Screens, Resources
   FormaTests/          Hosted unit tests, including gated live-backend tests
   FormaUITests/        End-to-end XCUITest coverage
   SETUP.md             Full backend, signing, and test instructions
 supabase/
-  migrations/          Schema, RLS, seed, memory/realtime, knowledge/usage
-  functions/           Deno Edge Functions: coach-chat, coach-plan,
-                       delete-account, knowledge-ingest
-  knowledge/           Curated corpus and evaluation datasets
-  .env.example         Every supported server secret and limit
-scripts/               Ingestion, seeding, brand assets, live AI evaluation
-tests/                 Node tests that execute the shipped TypeScript modules
+  migrations/          Schema, RLS, seed, form analysis, Community, AI cleanup
+  functions/           Deno Edge Function: delete-account
+  .env.example         Server secrets (none required for Community)
 src/                   Legacy Expo prototype (kept for reference, not shipped)
 ```
 
@@ -51,7 +47,8 @@ Open `Forma.xcodeproj` in Xcode and Run, or install the built app with
 With no Supabase build settings the app opens in an honest **Setup required**
 state. A debug build offers **Explore preview data**, a local repository stored
 in Application Support that is labelled as preview throughout the UI and is not
-a fake backend. Production builds do not offer it.
+a fake backend. Production builds do not offer it. Community is disabled in
+preview mode and says so instead of inventing members.
 
 Point the app at a project by setting `SUPABASE_URL` and `SUPABASE_ANON_KEY` as
 user-defined Xcode build settings. Only the anon/publishable key belongs in the
@@ -65,12 +62,18 @@ Apply the migrations in `supabase/migrations/` in filename order:
 
 | File | Purpose |
 | --- | --- |
-| `0001_forma_schema.sql` | Tables, constraints, indexes, triggers |
+| `0001_forma_schema.sql` | Profiles, exercises, plans, workouts, sets, reminders |
 | `0002_forma_rls.sql` | Row Level Security and grants |
 | `0003_seed_exercises.sql` | Exercise catalog seed |
-| `0004_ai_memory_and_realtime.sql` | Conversation summaries, message metadata, exercise provenance, Realtime publication |
-| `0005_ai_knowledge_and_usage.sql` | pgvector, knowledge tables (1536-dim, HNSW, lexical index), `match_knowledge_chunks`, `ai_usage`, private retrieval cache |
-| `0006_form_analysis.sql` | One-to-one `form_analysis_sessions` record per camera session (`workout_sessions.id` foreign key), constraints, index, RLS, Realtime |
+| `0004_ai_memory_and_realtime.sql` | Historical AI memory tables (archived and dropped by `0008`) |
+| `0005_ai_knowledge_and_usage.sql` | Historical AI knowledge tables (archived and dropped by `0008`) |
+| `0006_form_analysis.sql` | One-to-one `form_analysis_sessions` record per camera session, RLS, Realtime |
+| `0007_community.sql` | Gyms, areas, profiles, preferences, memberships, account status, blocks, connections, conversations, messages, reads, mutes, posts, likes, comments, hidden posts, reports, admins, moderation actions, notifications, RPCs, RLS, avatar storage, Realtime |
+| `0008_remove_ai_coach.sql` | Copies legacy AI coach, knowledge, usage, and cache rows into the unexposed `archive_ai_coach` schema, then drops the AI tables and functions |
+
+`0008` archives rather than silently discarding old AI conversations. The
+archive schema is revoked from `anon` and `authenticated`: it exists only for an
+operator to review or export legacy rows, not for the app.
 
 ```bash
 supabase link --project-ref <your-project-ref>
@@ -80,66 +83,79 @@ supabase db push
 ### Edge Functions
 
 ```bash
-supabase functions deploy coach-chat
-supabase functions deploy coach-plan
 supabase functions deploy delete-account
-supabase functions deploy knowledge-ingest
-
-supabase secrets set OPENAI_API_KEY=sk-...
-# optional model routing (defaults shown)
-supabase secrets set OPENAI_MODEL_FAST=gpt-4o-mini
-supabase secrets set OPENAI_MODEL_STANDARD=gpt-4o-mini
-supabase secrets set OPENAI_MODEL_REASONING=gpt-4o
-supabase secrets set OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-# optional live web retrieval
-supabase secrets set WEB_SEARCH_PROVIDER=tavily
-supabase secrets set TAVILY_API_KEY=...
-supabase secrets set KNOWLEDGE_INGEST_SECRET=$(openssl rand -hex 32)
 ```
 
 `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are
-injected by the Edge runtime. The OpenAI key exists only as a server secret and
-is never shipped in the app or committed. `supabase/.env.example` lists every
-supported secret and limit.
+injected by the Edge runtime. Community needs no custom server secrets: every
+mutation runs through `SECURITY DEFINER` RPCs and RLS. There is no AI provider,
+model key, or knowledge-ingestion secret in this build.
 
-### Knowledge ingestion
+## Community
 
-The corpus in `supabase/knowledge/forma-coaching-notes.json` is original Forma
-coaching content with publisher, date, licence, trust tier, and topic on every
-document. Real OpenAI embeddings are generated server-side during ingestion.
+Community is a first-class tab backed by real database records. There are no
+seed members, fake requests, sample conversations, or placeholder posts, and the
+preview repository cannot construct any: in preview mode the tab explains that
+Community needs a real account and backend.
 
-```bash
-FORMA_SUPABASE_URL=https://<ref>.supabase.co \
-FORMA_SUPABASE_ANON_KEY=<anon-key> \
-FORMA_INGEST_SECRET=<the secret above> \
-  node scripts/ingest-knowledge.mjs
-```
+### Discovery and privacy
 
-The script reports documents upserted, chunks stored, and chunks with real
-embeddings, and exits non-zero if any document is rejected. Without embeddings,
-retrieval still works lexically; the script says so explicitly.
+- A member picks a gym from the `gyms` table or an area from `community_areas`.
+  Chennai areas ship as reference data; gyms are searched, joined when verified,
+  or submitted for review. Duplicate gym submissions are detected by normalized
+  name and city.
+- Discovery returns only accounts that completed a Community profile and left
+  `discoverable` on. `community_discover` enforces blocks, suspension,
+  age-band compatibility, and the viewer's privacy switches on the server.
+- Matching uses the chosen gym or area only. It never uses GPS, background
+  location, presence, current gym attendance, or exact distance. The app does
+  not request location permission for Community and never reveals whether a
+  member is physically inside a gym.
+- Results expose only public profile fields: user id, username, display name,
+  avatar URL, bio, interests, workout categories, gym name, area, city, and
+  connection status. Email, phone, address, coordinates, presence, and exact
+  distance are neither selected nor returned.
+- Feed visibility, profile visibility, and messaging each have their own
+  server-side checks (`community_can_read_post`, `community_can_view_profile`,
+  `community_can_message`).
 
-## The coach pipeline
+### Connections, messaging, feed, and notifications
 
-`coach-chat` authenticates the caller, enforces per-minute and per-day limits,
-loads a bounded history window (not the whole conversation), resolves short
-follow-ups, classifies intent, and routes to the smallest adequate model tier.
-It then retrieves in parallel from the curated knowledge base and — only when
-current information is requested — a live web provider.
+- A connection moves through `pending → accepted/declined`; either side can
+  remove it. Messaging requires an accepted connection, and each accepted
+  connection gets exactly one conversation.
+- Messages are text and emoji sent through `community_send_message`, with
+  server-side length, link rejection, block, suspension, and connection checks.
+  The client sends an idempotency key and deduplicates retries. Threads load 40
+  messages per page; unread counts come from per-conversation read state. Mute
+  suppresses notifications without removing the conversation.
+- The feed supports post kinds, optional achievement labels, optional sharing of
+  an existing workout summary the author chooses, likes, comments, hide, and
+  report. Nothing is auto-published from a completed workout.
+- Notifications are in-app rows written by database triggers for connection
+  requests and acceptance, messages, comments, and likes. Unread badges come
+  from the server. One Realtime subscription per signed-in user refreshes the
+  notification list and conversation timestamps; it does not open a channel per
+  screen or per row. APNs is not configured in this build, and the settings
+  screen says so.
+- Search, lists, and threads paginate; the store debounces search and avoids
+  duplicate in-flight loads.
 
-Retrieved passages are treated as untrusted data, screened for instruction
-injection, and cannot override the system rules. The answer streams to the app;
-afterwards the server verifies every URL, citation marker, and exercise ID
-against the sources actually retrieved, performs at most one correction pass,
-removes unverified links, and appends an uncertainty note when a claim cannot be
-tied to a source. `ai_usage` records model, intent, tokens, latency, and status.
-Web results are cached for a short window under a key that contains no user
-identifiers.
+### Safety and moderation
 
-`coach-plan` generates a seven-day plan, validates schedule, duration, equipment,
-duplicates, catalog IDs, and volume, and retries with a bounded revision loop.
-The athlete must approve a generated plan in the app before it replaces the
-active one.
+- Blocking is enforced server-side in discovery, connections, feed, profiles,
+  and messaging. Reporting covers profiles, posts, comments, and messages.
+- Age bands (`minor`, `adult`, `unknown`) are stored on the server and
+  cross-band discovery, connections, and messaging are denied there. A
+  client-supplied age is never trusted on its own.
+- Admin access is checked by `community_is_admin` on every admin RPC; the app
+  never sends an `isAdmin` flag. Admin screens can review reports, remove posts
+  or comments, suspend or reinstate an account, review gym submissions, and read
+  the moderation audit trail. Suspended accounts lose Community write access.
+- Avatars are the only upload: JPEGs resized to at most 512 px, validated in the
+  app, and written to the member's own folder in the `community-avatars` bucket.
+  The bucket allows public reads (avatars appear in Community) and owner-only
+  writes. Messaging v1 has no attachments, images, video, or link sharing.
 
 ## Camera form analysis
 
@@ -166,41 +182,19 @@ explicit limitations.
   counting unavailable — movement could not be tracked reliably.”*
 - A finished session is written to the same workout history as other workouts:
   a `workout_sessions` row plus one `form_analysis_sessions` row keyed by that
-  session id. The structured row holds exercise, start/end, duration, validated
-  rep count, analysis availability, coverage, tracking interruptions, summary
-  observations and limitations. Validated reps are not duplicated as completed
-  sets. RLS scopes every row to `auth.uid()`.
+  session id. Validated reps are not duplicated as completed sets. RLS scopes
+  every row to `auth.uid()`.
 - If the backend cannot be reached the finished session is saved locally on the
-  device, shown in history immediately, marked as not synced, and retried with
-  an idempotent upsert on the next load, foreground refresh, manual refresh, or
-  network reconnect. Local analysis and the summary do not depend on the
-  network.
-- Frames are processed in memory and never recorded, saved, uploaded, or sent to
-  an AI provider. Joint coordinates never leave the process. Sharing a summary
-  with the coach is opt-in, previews the exact text, and contains no images,
-  video, frames, or keypoints.
+  device and retried with an idempotent upsert on the next load, foreground
+  refresh, manual refresh, or network reconnect.
+- Frames are processed in memory and never recorded, saved, uploaded, sent to a
+  model, or shared to Community. Joint coordinates never leave the process.
 - 2D analysis has **not** been validated on a physical device in this build. The
-  setup and summary screens state that factual limitation without an
-  experimental badge, and the app does not claim production accuracy. The
-  Simulator has no camera and only verifies permission and honest
-  unavailability. See `native/SETUP.md` for the physical-device test checklist.
+  setup and summary screens state that factual limitation. The Simulator has no
+  camera and only verifies permission and honest unavailability. See
+  `native/SETUP.md` for the physical-device test checklist.
 
 ## Tests
-
-### Server modules (Node, real shipped TypeScript)
-
-These run under Node, transpile the actual Edge Function sources, and need no
-mocks or credentials:
-
-```bash
-node tests/planValidation.test.mjs   # plan schema, schedule, volume, duplicates
-node tests/aiPipeline.test.mjs       # intent, routing, accuracy, safety, chunking, web filtering
-node tests/retrievalEval.test.mjs    # lexical retrieval quality over the real corpus
-```
-
-`retrievalEval` reports recall@3 and MRR for the lexical fallback and fails
-below 80% / 0.70. It does not measure pgvector; a vector run requires an
-ingested project and real credentials.
 
 ### Native unit tests
 
@@ -212,8 +206,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   -only-testing:FormaTests
 ```
 
-`LiveBackendTests` signs in to a real project and calls the deployed functions.
-They **skip** unless `FORMA_SUPABASE_URL`, `FORMA_ANON_KEY`,
+`LiveBackendTests` signs in to a real project and calls the deployed Community
+RPCs. They **skip** unless `FORMA_SUPABASE_URL`, `FORMA_ANON_KEY`,
 `FORMA_TEST_EMAIL`, and `FORMA_TEST_PASSWORD` are set. A skip is not evidence
 that the backend works.
 
@@ -233,74 +227,51 @@ The UI test needs a clean install to exercise the setup screen:
 xcrun simctl uninstall <device-udid> forma.coach
 ```
 
-### Live AI evaluation (A–J)
-
-`supabase/knowledge/eval-ai.json` holds ten cases covering the required
-categories. The runner signs in, creates a real conversation, streams real
-replies, checks each case, prints per-category results, and deletes the
-conversation. It spends real model tokens.
-
-```bash
-FORMA_SUPABASE_URL=https://<ref>.supabase.co \
-FORMA_SUPABASE_ANON_KEY=<anon-key> \
-FORMA_TEST_EMAIL=<confirmed-test-user> \
-FORMA_TEST_PASSWORD=<password> \
-  node scripts/eval-ai.mjs
-```
-
-Without those four variables it prints `SKIPPED`, exits with code 3, and states
-that nothing was tested. Use `FORMA_EVAL_CATEGORY`, `FORMA_EVAL_LIMIT`, and
-`FORMA_EVAL_DELAY_MS` to narrow or pace a run.
-
 ## Security
 
 - Only the anon key ships in the app. RLS scopes every row to `auth.uid()`.
-- The OpenAI key and service-role key exist only as server secrets.
+- The service-role key exists only inside the `delete-account` Edge Function
+  runtime, never in the app.
 - Auth sessions are Keychain-backed and cleared on sign out or account deletion.
-- Health data is read on demand; it is never logged or sent to the coach.
-- Retrieved knowledge and web content is wrapped as untrusted reference data.
-- URLs, citations, and exercise IDs are verified deterministically; unverified
-  links are removed and the UI shows an uncertainty label.
-- The web-retrieval cache is server-only and stores no user data. Conversations,
-  summaries, and private data are never shared across users.
-- When live retrieval is unavailable, the coach says so. It does not present
-  general knowledge as current evidence.
+- Health data is read on demand; it is never logged or uploaded.
+- Community mutations are RPC-only and re-check blocks, suspension, age
+  compatibility, privacy switches, and connection state on the server.
+- Admin actions re-check `community_is_admin` on every call; no client flag can
+  grant moderation access.
+- Legacy AI conversation data is archived in a schema revoked from app roles,
+  not exposed through the API.
 - Camera frames, audio, video, and joint coordinates never leave the device or
-  reach disk. Only a text-only summary the athlete reviews can be sent to the
-  coach, and only after an explicit confirmation.
+  reach disk.
 
 ## Verification status
 
-Last verified in this repository:
+Last verified in this repository (2026-11-17):
 
-- TypeScript typecheck of the Edge Function sources: passed.
-- `tests/aiPipeline.test.mjs`: 47 checks passed.
-- `tests/planValidation.test.mjs`: 9 checks passed.
-- `tests/retrievalEval.test.mjs`: recall@3 100% (15/15), MRR 0.900 over the real
-  corpus (lexical fallback; pgvector not measured).
-- `FormaTests`: 115 executed, 2 skipped (`LiveBackendTests`), 0 failures. The
+- `FormaTests`: 111 executed, 4 skipped (`LiveBackendTests`), 0 failures. That
+  includes 11 Community model-decoding tests and the form-analysis suites. The
   form-analysis suites use synthetic pose fixtures; they prove the pipeline,
-  recorder, persistence and offline-queue logic, not camera or pose accuracy.
-- `FormaUITests`: passed end to end on a clean install, including the
-  form-analysis setup screen and its honest camera-unavailable state.
+  recorder, persistence, and offline-queue logic, not camera or pose accuracy.
+- `FormaUITests`: passed end to end on a clean install (136 s), covering
+  onboarding, all five tabs, the preview Community honest state, workout
+  logging, reminders, relaunch persistence, and the camera-unavailable setup
+  screen.
 - Debug and Release builds: succeeded.
-- `scripts/eval-ai.mjs`: **SKIPPED** — no live credentials were available. Live
-  OpenAI, Supabase, web retrieval, pgvector, and deployed-function behavior are
-  therefore **not verified** in this checkout.
+- Live Supabase behavior — migrations, RLS, RPC enforcement, Realtime, storage,
+  and the privacy checks in `LiveBackendTests` — is **not verified** in this
+  checkout because no project credentials were available. The live tests skip
+  and say so.
 
 ## Limitations
 
-- Local notifications only; no push notifications.
-- Realtime requires the project to have it enabled; otherwise the Home header
-  shows **Cached** instead of **Live**.
-- Live web retrieval needs a Tavily or Brave key. Without one the coach
-  discloses that it cannot verify current information.
-- Vector retrieval needs the ingested corpus and a project with pgvector.
-- The Expo prototype in `src/` is legacy and not the shipping client.
+- Local notifications only; APNs is not configured.
+- Realtime requires the project to have it enabled; otherwise lists and badges
+  refresh on load and pull-to-refresh instead of live.
+- Community requires a real Supabase project. Preview mode intentionally shows
+  none of it.
+- The legacy Expo prototype in `src/` is not the shipping client and was not
+  migrated to Community.
 - Camera form analysis has **not** been validated on a physical device. The
   Simulator has no camera, so real keypoint accuracy, skeleton alignment, and
-  rep-count reliability are untested in this checkout. The UI states this
-  limitation and does not present the counts or observations as validated
-  production accuracy.
+  rep-count reliability are untested in this checkout.
 - Form analysis uses 2D Vision pose only. There is no trained exercise classifier,
   no 3D pose, no automatic exercise identification, and no form score.

@@ -15,10 +15,6 @@ enum FormAnalysisPhase: Equatable {
     case failed(String)
 }
 
-enum CoachShareState: Equatable {
-    case idle, sending, sent, failed(String)
-}
-
 @MainActor
 @Observable
 final class FormAnalysisViewModel {
@@ -42,7 +38,6 @@ final class FormAnalysisViewModel {
     private(set) var interruptionMessage: String?
     private(set) var performanceNote: String?
     private(set) var thermalNote: String?
-    private(set) var coachShareState: CoachShareState = .idle
     private(set) var isCameraRunning = false
     private(set) var trackingInterruptions = 0
     private(set) var saveState: FormSessionSaveState = .idle
@@ -127,7 +122,6 @@ final class FormAnalysisViewModel {
     func start() async {
         guard canConfigure else { return }
         summary = nil
-        coachShareState = .idle
         errorMessage = nil
         interruptionMessage = nil
         performanceNote = nil
@@ -239,46 +233,6 @@ final class FormAnalysisViewModel {
             }
         default:
             break
-        }
-    }
-
-    func sendToCoach(using model: AppModel) async {
-        guard let summary, coachShareState != .sending else { return }
-        guard model.prefersAI else {
-            coachShareState = .failed("The AI coach is not available in this build.")
-            return
-        }
-        guard model.user != nil else {
-            coachShareState = .failed("Sign in to send this summary to the coach.")
-            return
-        }
-        guard !model.coachBusy else {
-            coachShareState = .failed("The coach is still replying to an earlier message. Try again when it finishes.")
-            return
-        }
-        coachShareState = .sending
-        let message = FormAnalysisCoachMessage.make(from: summary)
-        let baseline = model.messages.count
-        model.submitCoachMessage(message)
-
-        // Wait for the submitted run to finish so this state reflects the real outcome.
-        let deadline = Date().addingTimeInterval(45)
-        while model.coachBusy && Date() < deadline {
-            try? await Task.sleep(for: .milliseconds(250))
-            if Task.isCancelled { return }
-        }
-        if let error = model.coachError {
-            coachShareState = .failed(error)
-        } else if model.messages.count > baseline {
-            coachShareState = .sent
-        } else if let notice = model.coachNotice {
-            coachShareState = .failed(notice)
-        } else if model.coachBusy {
-            // Still streaming after 45 s: the message was accepted, so its reply
-            // will land in the Coach tab even though it is not ready yet.
-            coachShareState = .sent
-        } else {
-            coachShareState = .failed("The coach did not reply. Open the Coach tab to check the conversation.")
         }
     }
 

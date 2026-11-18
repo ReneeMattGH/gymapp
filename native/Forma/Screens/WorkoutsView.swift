@@ -27,7 +27,7 @@ struct WorkoutsView: View {
                     )
                     if model.isPreview {
                         NoticeBanner(
-                            message: "Preview build: the plan is stored on this device. AI regeneration needs a connected Supabase project.",
+                            message: "Preview build: the plan is stored on this device. Connect Supabase to sync it across devices.",
                             systemImage: "testtube.2"
                         )
                     }
@@ -91,7 +91,7 @@ struct WorkoutsView: View {
                     .padding(.top, Spacing.xs)
                 }
                 HStack(spacing: Spacing.sm) {
-                    SecondaryButton(title: "Rebuild plan", systemImage: model.prefersAI ? "sparkles" : "arrow.triangle.2.circlepath") {
+                    SecondaryButton(title: "Rebuild plan", systemImage: "arrow.triangle.2.circlepath") {
                         showBuilder = true
                     }
                 }
@@ -100,7 +100,7 @@ struct WorkoutsView: View {
                     .font(FormaFont.bodyFont(13))
                     .foregroundStyle(palette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                PrimaryButton(title: "Build my plan", systemImage: "sparkles") {
+                PrimaryButton(title: "Build my plan", systemImage: "arrow.triangle.2.circlepath") {
                     showBuilder = true
                 }
             }
@@ -348,9 +348,7 @@ struct PlanBuilderView: View {
                         draftContent(draft)
                     }
                     NoticeBanner(
-                        message: model.prefersAI
-                            ? "The AI coach returns a structured plan that is validated against the exercise library, your equipment, and your schedule before it can be saved."
-                            : "The built-in template uses your goals, equipment, and schedule. AI regeneration appears when Supabase is connected.",
+                        message: "The built-in template uses your goals, equipment, and schedule, and is validated against the exercise library before it can be saved.",
                         systemImage: "shield.lefthalf.filled"
                     )
                 }
@@ -360,15 +358,6 @@ struct PlanBuilderView: View {
             .scrollIndicators(.hidden)
 
             VStack(spacing: Spacing.sm) {
-                if model.prefersAI {
-                    SecondaryButton(
-                        title: model.isGeneratingPlan ? "Asking the AI coach…" : "Rebuild with AI coach",
-                        systemImage: "sparkles",
-                        isDisabled: isSaving || model.isGeneratingPlan
-                    ) {
-                        generateWithAI()
-                    }
-                }
                 SecondaryButton(title: "Use built-in template", systemImage: "arrow.triangle.2.circlepath", isDisabled: isSaving || model.isGeneratingPlan) {
                     rebuildLocally()
                 }
@@ -470,20 +459,6 @@ struct PlanBuilderView: View {
                 self.error = error.localizedDescription
             }
             isLoading = false
-        }
-    }
-
-    private func generateWithAI() {
-        error = nil
-        notice = nil
-        Task { @MainActor in
-            do {
-                let plan = try await model.requestAIPlan()
-                draft = plan
-                notice = "The AI plan passed validation. Review it before saving."
-            } catch {
-                self.error = error.localizedDescription
-            }
         }
     }
 

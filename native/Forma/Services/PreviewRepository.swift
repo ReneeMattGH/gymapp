@@ -6,8 +6,6 @@ struct PreviewSnapshot: Codable {
     var plans: [WorkoutPlan] = []
     var sessions: [WorkoutSession] = []
     var reminders: [String: ReminderSettings] = [:]
-    var conversations: [CoachConversation] = []
-    var messages: [CoachMessage] = []
     var progress: [ProgressRecord] = []
 }
 
@@ -100,47 +98,6 @@ actor PreviewRepository: FormaRepository {
     func saveReminderSettings(_ settings: ReminderSettings) async throws {
         var next = await load()
         next.reminders[settings.userId] = settings
-        await persist(next)
-    }
-
-    func listConversations(userId: String) async throws -> [CoachConversation] {
-        await load().conversations
-            .filter { $0.userId == userId }
-            .sorted { $0.updatedAt > $1.updatedAt }
-    }
-
-    func createConversation(_ conversation: CoachConversation) async throws {
-        var next = await load()
-        next.conversations.append(conversation)
-        await persist(next)
-    }
-
-    func updateConversation(_ conversation: CoachConversation) async throws {
-        var next = await load()
-        if let index = next.conversations.firstIndex(where: { $0.id == conversation.id }) {
-            next.conversations[index] = conversation
-        }
-        await persist(next)
-    }
-
-    func deleteConversation(id: String) async throws {
-        var next = await load()
-        next.conversations.removeAll { $0.id == id }
-        next.messages.removeAll { $0.conversationId == id }
-        await persist(next)
-    }
-
-    func listMessages(conversationId: String) async throws -> [CoachMessage] {
-        await load().messages
-            .filter { $0.conversationId == conversationId }
-            .sorted { $0.createdAt < $1.createdAt }
-    }
-
-    func addMessage(_ message: CoachMessage) async throws {
-        var next = await load()
-        if !next.messages.contains(where: { $0.id == message.id }) {
-            next.messages.append(message)
-        }
         await persist(next)
     }
 

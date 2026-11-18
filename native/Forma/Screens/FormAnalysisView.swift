@@ -73,9 +73,6 @@ struct FormAnalysisView: View {
                 FormAnalysisSessionSummaryView(
                     summary: summary,
                     saveState: viewModel.saveState,
-                    coachAvailable: appModel.prefersAI,
-                    shareState: viewModel.coachShareState,
-                    onSend: { Task { await viewModel.sendToCoach(using: appModel) } },
                     retrySave: { Task { await viewModel.save(using: appModel) } },
                     dismiss: { dismiss() }
                 )
@@ -319,8 +316,7 @@ private struct FormAnalysisSetupView: View {
             }
             privacyLine("Frames are processed in memory with Apple's on-device Vision framework.")
             privacyLine("No video or audio is recorded, saved or written to disk.")
-            privacyLine("Frames and joint coordinates are never uploaded to Forma or an AI provider.")
-            privacyLine("Only a text summary can be shared with the coach, and only after you confirm it.")
+            privacyLine("Frames and joint coordinates are never uploaded, saved, or shared.")
         }
     }
 
@@ -637,14 +633,10 @@ private struct FormAnalysisLiveView: View {
 struct FormAnalysisSessionSummaryView: View {
     let summary: FormAnalysisSessionSummary
     let saveState: FormSessionSaveState
-    let coachAvailable: Bool
-    let shareState: CoachShareState
-    let onSend: () -> Void
     let retrySave: () -> Void
     let dismiss: () -> Void
 
     @Environment(\.formaPalette) private var palette
-    @State private var showSharePreview = false
 
     var body: some View {
         ZStack {
@@ -670,7 +662,6 @@ struct FormAnalysisSessionSummaryView: View {
                     statsRow
                     observationsSection
                     limitationsSection
-                    coachSection
 
                     PrimaryButton(title: "Done", systemImage: "checkmark") {
                         dismiss()
@@ -683,19 +674,6 @@ struct FormAnalysisSessionSummaryView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollIndicators(.hidden)
-        }
-        .sheet(isPresented: $showSharePreview) {
-            FormAnalysisSharePreview(
-                text: FormAnalysisCoachMessage.make(from: summary),
-                shareState: shareState,
-                send: {
-                    onSend()
-                    showSharePreview = false
-                }
-            )
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
-            .presentationBackground(palette.background)
         }
     }
 
@@ -828,50 +806,6 @@ struct FormAnalysisSessionSummaryView: View {
         }
     }
 
-    private var coachSection: some View {
-        FormaCard(style: .raised) {
-            HStack {
-                Overline(text: "AI coach")
-                Spacer()
-                Image(systemName: "sparkles")
-                    .font(.system(size: 13))
-                    .foregroundStyle(palette.accentText)
-            }
-            Text("Ask the coach what these measured observations generally mean. Only the text summary is shared — never images, video, frames or joint coordinates.")
-                .font(FormaFont.bodyFont(12))
-                .foregroundStyle(palette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if !coachAvailable {
-                NoticeBanner(
-                    message: "The AI coach is unavailable in this build. The summary stays on this device.",
-                    systemImage: "sparkles"
-                )
-            }
-
-            SecondaryButton(
-                title: shareState == .sending ? "Sending…" : "Preview & share summary",
-                systemImage: "square.and.arrow.up",
-                isDisabled: !coachAvailable || shareState == .sending
-            ) {
-                showSharePreview = true
-            }
-
-            if shareState == .sent {
-                Text("Sent to the coach. Open the Coach tab to read the reply.")
-                    .font(FormaFont.bodyFont(11.5, weight: .medium))
-                    .foregroundStyle(palette.accentText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if case .failed(let message) = shareState {
-                Text(message)
-                    .font(FormaFont.bodyFont(11.5))
-                    .foregroundStyle(palette.danger)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
     private var durationText: String {
         let seconds = Int(summary.duration.rounded())
         if seconds >= 60 {
@@ -948,57 +882,6 @@ struct FormAnalysisObservationRow: View {
 }
 
 // MARK: - Consent and loading
-
-private struct FormAnalysisSharePreview: View {
-    let text: String
-    let shareState: CoachShareState
-    let send: () -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.formaPalette) private var palette
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: Spacing.xl) {
-                    NoticeBanner(
-                        message: "This sends only the text below. No images, video, frames or joint coordinates are included.",
-                        systemImage: "lock.shield"
-                    )
-                    FormaCard {
-                        Text(text)
-                            .font(FormaFont.bodyFont(12))
-                            .foregroundStyle(palette.textSecondary)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Text("Sending this adds a message to your coach conversation. You can delete the conversation from the Coach tab.")
-                        .font(FormaFont.bodyFont(11))
-                        .foregroundStyle(palette.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(Spacing.xl)
-            }
-            .scrollIndicators(.hidden)
-            .background(FormaBackground())
-            .navigationTitle("Share with coach")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundStyle(palette.accentText)
-                }
-            }
-            .safeAreaInset(edge: .bottom) {
-                PrimaryButton(title: "Send to coach", systemImage: "sparkles") {
-                    send()
-                }
-                .padding(Spacing.lg)
-                .background(palette.background.opacity(0.95))
-            }
-        }
-    }
-}
 
 private struct FormAnalysisLoadingView: View {
     let title: String
