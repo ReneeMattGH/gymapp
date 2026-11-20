@@ -10,6 +10,7 @@
     "ios": "expo start --ios",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
+    "ceebase": "python D:/Mac/project/NexusDB/tools/studio/server.py ceebase.cbdb",
     "seed:exercises": "node scripts/generate-exercise-seed.mjs",
     "assets:brand": "node scripts/generate-brand-assets.mjs"
   },

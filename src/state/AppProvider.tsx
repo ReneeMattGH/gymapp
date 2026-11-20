@@ -154,7 +154,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     void boot();
 
     const unsubscribe =
-      repository.kind === 'supabase'
+      repository.kind !== 'preview'
         ? repository.onAuthStateChange((next) => {
             if (!mounted) return;
             void applyUser(next);
