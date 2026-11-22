@@ -11,7 +11,7 @@ import type {
   WorkoutSession,
 } from './types';
 
-export type RepositoryKind = 'supabase' | 'preview' | 'ceebase';
+export type RepositoryKind = 'supabase' | 'preview';
 
 export type AuthResult = { needsEmailConfirmation: boolean };
 
