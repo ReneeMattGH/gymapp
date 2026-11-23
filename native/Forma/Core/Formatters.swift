@@ -26,7 +26,7 @@ enum FormaDate {
     static func parse(_ value: String) -> Date? {
         if let date = withFractional.date(from: value) { return date }
         if let date = withoutFractional.date(from: value) { return date }
-        // Supabase can return offsets without a colon (e.g. +0000).
+        // Backends can return timezone offsets without a colon (e.g. +0000).
         let normalised = value.replacingOccurrences(of: " ", with: "T")
         if let date = withFractional.date(from: normalised) { return date }
         if let date = withoutFractional.date(from: normalised) { return date }

@@ -11,7 +11,6 @@ enum WidgetPublisher {
         preferences: Preferences?,
         sessions: [WorkoutSession],
         activeWorkout: ActiveWorkout?,
-        isPreview: Bool,
         now: Date = Date()
     ) {
         var snapshot = WidgetSnapshotBuilder.build(
@@ -20,7 +19,7 @@ enum WidgetPublisher {
             preferences: preferences,
             sessions: sessions,
             activeWorkout: activeWorkout,
-            isPreview: isPreview,
+            isPreview: false,
             now: now
         )
         snapshot.community = WidgetSharedDataStore.community(for: accountID)
@@ -61,7 +60,6 @@ extension AppModel {
             preferences: preferences,
             sessions: sessions,
             activeWorkout: activeWorkout,
-            isPreview: isPreview,
             now: now
         )
     }

@@ -109,12 +109,6 @@ struct HomeView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Spacing.xl) {
                     header
-                    if model.isPreview {
-                        NoticeBanner(
-                            message: "Preview build: training data stays on this device. Connect Supabase to sync and join the community.",
-                            systemImage: "testtube.2"
-                        )
-                    }
                     if let startError {
                         ErrorBanner(message: startError)
                     }

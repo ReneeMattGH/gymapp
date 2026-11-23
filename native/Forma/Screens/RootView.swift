@@ -5,7 +5,6 @@ struct RootView: View {
     @Environment(\.formaPalette) private var palette
     @Environment(\.scenePhase) private var scenePhase
     @State private var didBootstrap = false
-    @State private var showPasswordUpdate = false
 
     var body: some View {
         ZStack {
@@ -21,21 +20,25 @@ struct RootView: View {
         }
         .onOpenURL { url in
             guard url.scheme == "forma" else { return }
-            if url.host == "auth-callback" || url.absoluteString.contains("update-password") {
-                model.handleAuthURL(url)
-                if url.absoluteString.contains("update-password") {
-                    showPasswordUpdate = true
-                }
-            } else {
-                model.routeDeepLink(url)
+            model.routeDeepLink(url)
+        }
+        .sheet(isPresented: Binding(
+            get: { model.isAccountPresented },
+            set: { model.isAccountPresented = $0 }
+        )) {
+            NavigationStack {
+                AccountView()
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { model.isAccountPresented = false }
+                                .foregroundStyle(palette.accentText)
+                        }
+                    }
             }
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             Task { await model.refreshOnForeground() }
-        }
-        .sheet(isPresented: $showPasswordUpdate) {
-            UpdatePasswordView()
         }
         .animation(.easeInOut(duration: 0.22), value: model.mode)
     }
@@ -45,15 +48,11 @@ struct RootView: View {
         switch model.mode {
         case .loading:
             LaunchView()
-        case .setupRequired:
-            SetupRequiredView()
-        case .preview, .supabase:
-            if model.isBootstrapping || (model.isLoadingData && model.profile == nil) {
+        case .local:
+            if model.isBootstrapping {
                 LaunchView()
-            } else if model.user == nil {
-                AuthView()
-            } else if let error = model.loadError, model.profile == nil {
-                LoadFailureView(message: error)
+            } else if model.repository == nil {
+                LoadFailureView(message: model.loadError ?? "The local database could not be opened.")
             } else if model.needsOnboarding || model.pendingOnboardingOutcome != nil || model.isCompletingOnboarding {
                 OnboardingView()
             } else {
@@ -89,10 +88,10 @@ struct LoadFailureView: View {
     var body: some View {
         VStack(spacing: Spacing.lg) {
             Wordmark()
-            Image(systemName: "wifi.exclamationmark")
+            Image(systemName: "externaldrive.badge.exclamationmark")
                 .font(.system(size: 30))
                 .foregroundStyle(palette.warning)
-            Text("Your data could not load")
+            Text("Your local data could not open")
                 .font(FormaFont.displayFont(21, weight: .semibold))
                 .foregroundStyle(palette.text)
             Text(message)

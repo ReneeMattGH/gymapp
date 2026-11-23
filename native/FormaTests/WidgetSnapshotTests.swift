@@ -752,4 +752,22 @@ final class WidgetSnapshotTests: XCTestCase {
         XCTAssertNil(AppDeepLink.parse(URL(string: "forma://auth-callback?code=abc")!))
         XCTAssertNil(AppDeepLink.parse(URL(string: "forma://update-password")!))
     }
+
+    func testAuthDeepLinkParsing() {
+        XCTAssertEqual(
+            AuthDeepLink.parse(URL(string: "forma://auth/verify-email?token=abc123")!),
+            .verifyEmail(token: "abc123")
+        )
+        XCTAssertEqual(
+            AuthDeepLink.parse(URL(string: "FORMA://Auth/Reset-Password?token=xyz789")!),
+            .resetPassword(token: "xyz789")
+        )
+    }
+
+    func testAuthDeepLinkRequiresTokenAndKnownRoute() {
+        XCTAssertNil(AuthDeepLink.parse(URL(string: "forma://auth/verify-email")!))
+        XCTAssertNil(AuthDeepLink.parse(URL(string: "forma://auth/verify-email?token=")!))
+        XCTAssertNil(AuthDeepLink.parse(URL(string: "forma://today?token=abc123")!))
+        XCTAssertNil(AuthDeepLink.parse(URL(string: "https://auth/reset-password?token=abc123")!))
+    }
 }

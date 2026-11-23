@@ -316,7 +316,7 @@ enum PlanGenerator {
             sessionMinutes: preferences.sessionMinutes,
             equipment: preferences.equipment,
             source: .onDevice,
-            createdAt: Date(),
+            createdAt: StoredTimestamp.now(),
             days: days
         )
     }
@@ -439,7 +439,7 @@ enum PlanGenerator {
             sessionMinutes: preferences.sessionMinutes,
             equipment: preferences.equipment,
             source: .ai,
-            createdAt: Date(),
+            createdAt: StoredTimestamp.now(),
             days: days
         )
     }

@@ -51,5 +51,8 @@ native/.swiftpm/
 # local secrets
 .env
 
+# backend avatar uploads (runtime data, not source)
+backend/uploads/
+
 # Xcode user state
 **/xcuserdata/

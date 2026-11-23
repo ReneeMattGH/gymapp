@@ -1,18 +1,15 @@
 import SwiftUI
 import UIKit
+import PhotosUI
 
 struct ProfileView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.formaPalette) private var palette
-    @State private var confirmSignOut = false
     @State private var confirmDelete = false
     @State private var error: String?
     @State private var busy = false
-
-    private var initial: String {
-        let name = model.profile?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return name.first.map { String($0).uppercased() } ?? "F"
-    }
+    @State private var photoItem: PhotosPickerItem?
+    @State private var photoBusy = false
 
     var body: some View {
         NavigationStack {
@@ -22,7 +19,9 @@ struct ProfileView: View {
                     if let error {
                         ErrorBanner(message: error)
                     }
+                    profilesSection
                     accountCard
+                    accountSection
                     trainingSection
                     appearanceCard
                     appSection
@@ -31,7 +30,7 @@ struct ProfileView: View {
                         systemImage: "heart.text.square"
                     )
                     dangerZone
-                    Text("Forma \(version) · \(model.isPreview ? "Preview build" : "Connected build")")
+                    Text("Forma \(version) · Local database")
                         .font(FormaFont.bodyFont(10))
                         .foregroundStyle(palette.textTertiary)
                         .frame(maxWidth: .infinity)
@@ -47,55 +46,43 @@ struct ProfileView: View {
             .toolbar(.hidden, for: .navigationBar)
         }
         .confirmationDialog(
-            model.isPreview ? "Leave preview?" : "Sign out of Forma?",
-            isPresented: $confirmSignOut,
-            titleVisibility: .visible
-        ) {
-            Button(model.isPreview ? "Exit preview" : "Sign out", role: .destructive) {
-                Task {
-                    busy = true
-                    await model.signOut()
-                    busy = false
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(model.isPreview ? "Preview data is reset on this device when you leave." : "Your workouts stay on your account and return when you sign back in.")
-        }
-        .confirmationDialog(
-            "Delete your account?",
+            "Delete this profile?",
             isPresented: $confirmDelete,
             titleVisibility: .visible
         ) {
-            Button("Delete account", role: .destructive) {
+            Button("Delete profile", role: .destructive) {
                 Task {
                     busy = true
                     error = nil
-                    let ok = await model.deleteAccount()
-                    if !ok, let authError = model.authError {
-                        error = authError
+                    let ok = await model.deleteActiveProfile()
+                    if !ok, let profileError = model.profileError {
+                        error = profileError
                     }
                     busy = false
                 }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes your profile, plans, sessions, check-ins, community posts, connections, and messages. It cannot be undone.")
+            Text("This erases this profile's plans, workout history, check-ins and reminders from this device. It cannot be undone.")
+        }
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task { await updatePhoto(from: item) }
         }
     }
 
     private var profileHeader: some View {
         HStack(spacing: Spacing.lg) {
-            Text(initial)
-                .font(FormaFont.displayFont(28, weight: .bold))
-                .foregroundStyle(palette.accentInk)
-                .frame(width: 72, height: 72)
-                .background(palette.accentGradient, in: Circle())
+            PhotosPicker(selection: $photoItem, matching: .images) {
+                ProfileAvatar(profile: model.profile, size: 72, showsCameraBadge: true)
+            }
+            .buttonStyle(.plain)
+            .disabled(photoBusy)
             VStack(alignment: .leading, spacing: 4) {
                 Text(model.profile?.name ?? "Your profile")
                     .font(FormaFont.displayFont(26, weight: .bold))
                     .foregroundStyle(palette.text)
-                Text(model.user?.email ?? "Preview account")
+                Text("Stored on this device")
                     .font(FormaFont.bodyFont(12))
                     .foregroundStyle(palette.textTertiary)
                 HStack(spacing: 6) {
@@ -109,14 +96,102 @@ struct ProfileView: View {
         }
     }
 
+    private var profilesSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            SectionHeader(title: "Profiles")
+            ForEach(model.localProfiles, id: \.id) { profile in
+                Button {
+                    guard profile.id != model.user?.id else { return }
+                    Task { await model.switchProfile(to: profile.id) }
+                } label: {
+                    HStack(spacing: Spacing.md) {
+                        ProfileAvatar(profile: profile, size: 40)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(profile.name.isEmpty ? "Unnamed profile" : profile.name)
+                                .font(FormaFont.bodyFont(14, weight: .semibold))
+                                .foregroundStyle(palette.text)
+                            Text(profile.experience.label + " · " + profile.environment.label)
+                                .font(FormaFont.bodyFont(11))
+                                .foregroundStyle(palette.textTertiary)
+                        }
+                        Spacer()
+                        if profile.id == model.user?.id {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(palette.accentText)
+                        }
+                    }
+                    .padding(Spacing.md)
+                    .background(palette.surface, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                            .strokeBorder(profile.id == model.user?.id ? palette.accent.opacity(0.5) : palette.border, lineWidth: 1)
+                    }
+                }
+                .buttonStyle(PressableScaleStyle())
+            }
+            Button {
+                Task { await model.beginNewProfile() }
+            } label: {
+                HStack(spacing: Spacing.md) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(palette.accentText)
+                        .frame(width: 40, height: 40)
+                        .background(palette.accentSoft, in: Circle())
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Add profile")
+                            .font(FormaFont.bodyFont(14, weight: .semibold))
+                            .foregroundStyle(palette.text)
+                        Text("Start fresh for another person on this device")
+                            .font(FormaFont.bodyFont(11))
+                            .foregroundStyle(palette.textTertiary)
+                    }
+                    Spacer()
+                }
+                .padding(Spacing.md)
+                .background(palette.surface, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                        .strokeBorder(palette.border, lineWidth: 1)
+                }
+            }
+            .buttonStyle(PressableScaleStyle())
+        }
+    }
+
+    private func updatePhoto(from item: PhotosPickerItem) async {
+        photoBusy = true
+        error = nil
+        defer {
+            photoBusy = false
+            photoItem = nil
+        }
+        do {
+            guard let raw = try await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: raw),
+                  let jpeg = image.jpegData(compressionQuality: 0.85),
+                  var next = model.profile else {
+                error = "That image could not be read."
+                return
+            }
+            let name = try ProfilePhotoStore.save(jpeg, replacing: next.photoPath)
+            next.photoPath = name
+            try await model.saveProfile(next)
+            Haptics.success()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
     private var accountCard: some View {
         FormaCard {
             HStack {
-                Overline(text: "Account")
+                Overline(text: "Local profile")
                 Spacer()
-                TagLabel(text: model.isPreview ? "Preview" : "Supabase", color: model.isPreview ? palette.warning : palette.accentText)
+                TagLabel(text: "On device", color: palette.accentText)
             }
-            KeyValueRow(label: "Email", value: model.user?.email ?? "Local preview")
+            KeyValueRow(label: "Age", value: model.profile?.age.map(String.init) ?? "—")
             FormaDivider()
             KeyValueRow(label: "Plan", value: model.plan?.name ?? "None yet")
             FormaDivider()
@@ -134,6 +209,28 @@ struct ProfileView: View {
                 }
             }
         }
+    }
+
+    private var accountSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            SectionHeader(title: "Forma account")
+            NavigationLink {
+                AccountView()
+            } label: {
+                settingsRow(icon: "person.crop.circle.badge.checkmark", title: accountTitle, detail: accountDetail)
+            }
+            .buttonStyle(PressableScaleStyle())
+        }
+    }
+
+    private var accountTitle: String {
+        model.remoteAccount?.email ?? "Connect account"
+    }
+
+    private var accountDetail: String {
+        guard model.isAccountAvailable else { return "Backend not connected in this build" }
+        guard let account = model.remoteAccount else { return "Sign in for Community and sync" }
+        return account.emailVerified ? "Signed in · verified" : "Signed in · email unconfirmed"
     }
 
     private var trainingSection: some View {
@@ -224,19 +321,9 @@ struct ProfileView: View {
     private var appSection: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             SectionHeader(title: "App")
-            Button {
-                confirmSignOut = true
-            } label: {
-                settingsRow(
-                    icon: model.isPreview ? "xmark.circle" : "rectangle.portrait.and.arrow.right",
-                    title: model.isPreview ? "Exit preview" : "Sign out",
-                    detail: model.isPreview ? "Reset local preview data" : "Keep your data on your account"
-                )
-            }
-            .buttonStyle(PressableScaleStyle())
             if let url = URL(string: UIApplication.openSettingsURLString) {
                 Link(destination: url) {
-                    settingsRow(icon: "gearshape", title: "iOS Settings", detail: "Notifications, Health, permissions")
+                    settingsRow(icon: "gearshape", title: "iOS Settings", detail: "Notifications, Health, camera permissions")
                 }
                 .buttonStyle(PressableScaleStyle())
             }
@@ -251,10 +338,10 @@ struct ProfileView: View {
             } label: {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Delete account")
+                        Text("Delete this profile")
                             .font(FormaFont.bodyFont(14, weight: .semibold))
                             .foregroundStyle(palette.danger)
-                        Text("Erase profile, plans, sessions, and chats")
+                        Text("Erase plans, sessions, check-ins and reminders")
                             .font(FormaFont.bodyFont(11))
                             .foregroundStyle(palette.textTertiary)
                     }
@@ -276,11 +363,6 @@ struct ProfileView: View {
             }
             .buttonStyle(PressableScaleStyle())
             .disabled(busy)
-            if model.isPreview {
-                Text("Preview builds have no cloud account. Use Exit preview to clear local data.")
-                    .font(FormaFont.bodyFont(10.5))
-                    .foregroundStyle(palette.textTertiary)
-            }
         }
     }
 
@@ -587,7 +669,7 @@ struct PreferencesView: View {
 
     private func save() {
         guard let user = model.user, let existing = model.profile else {
-            error = "Your profile could not be loaded. Sign in again."
+            error = "Your profile could not be loaded. Restart the app and try again."
             return
         }
         error = nil
@@ -628,5 +710,57 @@ struct PreferencesView: View {
             }
             saving = false
         }
+    }
+}
+
+// MARK: - Avatar
+
+struct ProfileAvatar: View {
+    var profile: Profile?
+    var size: CGFloat
+    var showsCameraBadge = false
+
+    @Environment(\.formaPalette) private var palette
+
+    private var image: UIImage? {
+        guard let name = profile?.photoPath, let url = ProfilePhotoStore.url(for: name) else { return nil }
+        return UIImage(contentsOfFile: url.path)
+    }
+
+    private var initial: String {
+        let name = profile?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.first.map { String($0).uppercased() } ?? "F"
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Group {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Text(initial)
+                        .font(FormaFont.displayFont(size * 0.4, weight: .bold))
+                        .foregroundStyle(palette.accentInk)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(palette.accent)
+                }
+            }
+            .frame(width: size, height: size)
+            .clipShape(Circle())
+
+            if showsCameraBadge {
+                Image(systemName: "camera.fill")
+                    .font(.system(size: size * 0.16, weight: .semibold))
+                    .foregroundStyle(palette.accentInk)
+                    .frame(width: size * 0.32, height: size * 0.32)
+                    .background(palette.accent, in: Circle())
+                    .overlay {
+                        Circle().strokeBorder(palette.background, lineWidth: 2)
+                    }
+            }
+        }
+        .accessibilityLabel(profile?.name.isEmpty == false ? "\(profile!.name) profile picture" : "Profile picture")
     }
 }

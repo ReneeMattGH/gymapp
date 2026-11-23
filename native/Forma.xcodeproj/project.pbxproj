@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A10000000000000000000001 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000011 /* Supabase */; };
 		A10000000000000000000021 /* FormaFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000020 /* FormaFlowTests.swift */; };
 		B1000000000000000000000B /* FormaWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* FormaWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B10000000000000000000012 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000F /* WidgetSnapshot.swift */; };
@@ -16,6 +15,8 @@
 		B10000000000000000000015 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000F /* WidgetSnapshot.swift */; };
 		B10000000000000000000016 /* WidgetSharedDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000010 /* WidgetSharedDataStore.swift */; };
 		B10000000000000000000017 /* WidgetTimelineLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000011 /* WidgetTimelineLogic.swift */; };
+		C10000000000000000000001 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000002 /* GRDB */; };
+		C10000000000000000000004 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000005 /* GRDB */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -41,6 +42,20 @@
 			remoteInfo = FormaWidgets;
 		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B1000000000000000000000A /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				B1000000000000000000000B /* FormaWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		A10000000000000000000002 /* Forma.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Forma.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -76,26 +91,12 @@
 		B10000000000000000000003 /* FormaWidgets */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (B10000000000000000000018 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = FormaWidgets; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
-/* Begin PBXCopyFilesBuildPhase section */
-		B1000000000000000000000A /* Embed Foundation Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				B1000000000000000000000B /* FormaWidgets.appex in Embed Foundation Extensions */,
-			);
-			name = "Embed Foundation Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
-
 /* Begin PBXFrameworksBuildPhase section */
 		A10000000000000000000004 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10000000000000000000001 /* Supabase in Frameworks */,
+				C10000000000000000000001 /* GRDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -110,6 +111,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C10000000000000000000004 /* GRDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -186,7 +188,7 @@
 			);
 			name = Forma;
 			packageProductDependencies = (
-				A10000000000000000000011 /* Supabase */,
+				C10000000000000000000002 /* GRDB */,
 			);
 			productName = Forma;
 			productReference = A10000000000000000000002 /* Forma.app */;
@@ -227,6 +229,9 @@
 				A20000000000000000000002 /* FormaTests */,
 			);
 			name = FormaTests;
+			packageProductDependencies = (
+				C10000000000000000000005 /* GRDB */,
+			);
 			productName = FormaTests;
 			productReference = A20000000000000000000001 /* FormaTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -288,7 +293,7 @@
 			mainGroup = A10000000000000000000005;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				A10000000000000000000010 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+				C10000000000000000000003 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
 			);
 			productRefGroup = A10000000000000000000006 /* Products */;
 			projectDirPath = "";
@@ -536,8 +541,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = forma.coach;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SUPABASE_ANON_KEY = "";
-				SUPABASE_URL = "";
+				FORMA_API_URL = "http://localhost:8787";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -564,8 +568,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = forma.coach;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SUPABASE_ANON_KEY = "";
-				SUPABASE_URL = "";
+				FORMA_API_URL = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -743,21 +746,26 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		A10000000000000000000010 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+		C10000000000000000000003 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/supabase/supabase-swift.git";
+			repositoryURL = "https://github.com/groue/GRDB.swift.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 2.55.6;
+				minimumVersion = 6.0.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		A10000000000000000000011 /* Supabase */ = {
+		C10000000000000000000002 /* GRDB */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A10000000000000000000010 /* XCRemoteSwiftPackageReference "supabase-swift" */;
-			productName = Supabase;
+			package = C10000000000000000000003 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
+		};
+		C10000000000000000000005 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C10000000000000000000003 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

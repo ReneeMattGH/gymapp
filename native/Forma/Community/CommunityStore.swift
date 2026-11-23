@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import Supabase
 import WidgetKit
 
 /// Holds Community state for the tab. Every mutation goes to the backend first;
@@ -18,6 +17,12 @@ final class CommunityStore {
 
     private(set) var service: (any CommunityServicing)?
     private(set) var userID: String?
+    /// The local profile whose widget snapshot should carry the Community
+    /// counts. Community itself belongs to the signed-in remote account.
+    private(set) var widgetAccountID: String?
+    /// The local profile's age, sent only so the server can enforce age bands.
+    /// It is never shown to other members.
+    private(set) var age: Int?
     private(set) var phase: Phase = .unavailable
     private(set) var bootstrap: CommunityBootstrap?
     private(set) var actionError: String?
@@ -80,19 +85,37 @@ final class CommunityStore {
 
     // MARK: - Lifecycle
 
-    func configure(service: (any CommunityServicing)?, userID: String?) async {
+    func configure(
+        service: (any CommunityServicing)?,
+        userID: String?,
+        widgetAccountID: String? = nil,
+        age: Int? = nil
+    ) async {
         guard let service, let userID else {
             streamTask?.cancel()
             streamTask = nil
             streamUserID = nil
+            if let previous = self.widgetAccountID ?? widgetAccountID, !previous.isEmpty {
+                let changed = WidgetSharedDataStore.updateCommunity(
+                    accountID: previous,
+                    pendingRequests: 0,
+                    unreadMessages: 0,
+                    unreadNotifications: 0
+                )
+                if changed { WidgetCenter.shared.reloadTimelines(ofKind: FormaWidgetKind.identifier) }
+            }
             self.service = nil
             self.userID = nil
+            self.widgetAccountID = nil
+            self.age = nil
             phase = .unavailable
             bootstrap = nil
             return
         }
         self.service = service
         self.userID = userID
+        self.widgetAccountID = widgetAccountID
+        self.age = age
 
         if loadedUserID != userID {
             loadedUserID = userID
@@ -170,9 +193,9 @@ final class CommunityStore {
     /// Shares counts only, never message or notification content, and reloads
     /// WidgetKit only when the numbers actually changed.
     private func publishWidgetCounts() {
-        guard let userID, let bootstrap else { return }
+        guard let accountID = widgetAccountID ?? userID, let bootstrap else { return }
         let changed = WidgetSharedDataStore.updateCommunity(
-            accountID: userID,
+            accountID: accountID,
             pendingRequests: bootstrap.incomingRequestCount,
             unreadMessages: bootstrap.unreadMessages,
             unreadNotifications: bootstrap.unreadNotifications
@@ -188,6 +211,8 @@ final class CommunityStore {
         streamUserID = nil
         service = nil
         userID = nil
+        widgetAccountID = nil
+        age = nil
         bootstrap = nil
         phase = .unavailable
     }
@@ -444,7 +469,8 @@ final class CommunityStore {
                 bio: bio,
                 interests: interests,
                 categories: categories,
-                avatarURL: avatarURL
+                avatarURL: avatarURL,
+                age: age
             )
             bootstrap?.profile = saved
             return true
@@ -888,7 +914,6 @@ final class CommunityStore {
 
     private static func message(_ error: Error) -> String {
         if let community = error as? CommunityError { return community.message }
-        if let postgrest = error as? PostgrestError { return postgrest.message }
         return error.localizedDescription
     }
 }

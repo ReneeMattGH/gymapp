@@ -1,16 +1,26 @@
 # Forma — native iOS setup
 
-Forma is a SwiftUI app that talks to Supabase for auth, sync, and Community, and
-keeps training plans, form analysis, and workout history on-device or in the
-user's own rows. No keys ship in the repository. Without them the app builds and
-runs in an honest **Setup required** state; a debug build can also run a local,
-clearly labelled preview mode.
+Forma is a fully native SwiftUI app with two independent data domains:
+
+| Domain | Where it lives | Owned by |
+| --- | --- | --- |
+| Training profile, plan, workout history, form-analysis sessions, reminders, check-ins | On-device SQLite (`Application Support/Forma/forma.sqlite`) | The app |
+| Account, sessions, Community (profiles, gyms, connections, messages, posts, moderation, notifications) | PostgreSQL behind the Node/TypeScript backend in `backend/` | The backend |
+
+There is no Supabase, no Expo/React Native runtime, and no third-party auth SDK in
+the shipping client. Signing in to a Forma account adds Community and account
+features; it never moves, merges, or rewrites on-device training data.
+
+A build with no backend URL is still a complete training app. Only the Account
+and Community screens become unavailable, and they say why instead of inventing
+members, posts, or deliveries.
 
 ## Requirements
 
 - Xcode 26 or newer (iOS 18.0 deployment target, iPhone only)
+- Node.js 22 or newer (Node 24 is what this tree was tested with)
+- PostgreSQL 14+ running locally (trust auth is fine for development)
 - An Apple ID for simulator builds; a paid team for a device build
-- A Supabase project (free tier is enough)
 
 ## 1. Build and run the app as-is
 
@@ -18,345 +28,199 @@ clearly labelled preview mode.
 cd native
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild -project Forma.xcodeproj -scheme Forma \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+  -destination 'platform=iOS Simulator,id=<device-udid>' build
 ```
 
-Open `Forma.xcodeproj` in Xcode, pick a simulator, and Run. Because
-`SUPABASE_URL` and `SUPABASE_ANON_KEY` are empty, the app opens on the
-Setup required screen with instructions.
+Open `Forma.xcodeproj`, pick a simulator, and Run. Debug builds read
+`FORMA_API_URL = http://localhost:8787` from the target build settings. Release
+builds leave it empty, so a release-shaped build has no backend until you set a
+real origin.
 
-To explore the interface without a backend, use **Explore preview data** at the
-bottom of that screen (debug builds only). Preview mode stores everything in
-Application Support on the device, labels itself throughout the UI, and uses
-local training data. It is not a fake backend; it is a separate local repository
-that is reset when you exit preview from Profile. Community is disabled in
-preview mode and says so, because preview data contains no real accounts.
+On first launch the app creates `forma.sqlite`, seeds the exercise catalog, and
+opens onboarding. No account is needed.
 
-## 2. Create the Supabase project
-
-1. Create a project at <https://supabase.com>.
-2. Apply the schema, policies, and exercise seed:
-
-   ```bash
-   supabase link --project-ref <your-project-ref>
-   supabase db push          # runs every file in supabase/migrations, in order
-   ```
-
-   Or paste the files from `supabase/migrations/` into the SQL editor in
-   filename order. Migration `0004_ai_memory_and_realtime.sql` created the old AI
-   memory tables, added exercise provenance (`exercise_library.source`), set
-   replica identity on the synced training tables, and published them to
-   Realtime. `0008_remove_ai_coach.sql` archives and drops the AI tables but
-   keeps the training columns and publication. Migration
-   `0005_ai_knowledge_and_usage.sql` is historical: it created the pgvector
-   knowledge and usage tables, which `0008` archives and removes. Migration
-   `0006_form_analysis.sql` adds the one-to-one `form_analysis_sessions` table
-   for camera sessions (RLS, cascade from `workout_sessions`, Realtime).
-   Migration `0007_community.sql` adds gyms, Chennai area reference data,
-   profiles, preferences, memberships, account status, blocks, connections,
-   conversations, messages, read state, mutes, posts, likes, comments, hidden
-   posts, reports, admins, moderation actions, notifications, all Community RPCs,
-   RLS, the `community-avatars` storage bucket, and its Realtime publication.
-
-3. **Realtime.** Two things subscribe to Realtime: the per-user training channel
-   on `workout_plans`, `workout_sessions`, `completed_sets`, and
-   `user_preferences`, and a single per-user Community channel on
-   `community_notifications`. If Realtime is disabled at the project level the
-   app still works: the Home header shows **Cached** instead of **Live**, and
-   Community lists and badges refresh on load and pull-to-refresh.
-
-4. In **Authentication → URL configuration**, add `forma://auth-callback` as an
-   allowed redirect URL. Email confirmation and password recovery both use it.
-
-5. **Community staff access.** Community starts with no administrators. After you
-   have created your own account, grant yourself moderator access in the SQL
-   editor:
-
-   ```sql
-   insert into public.community_admins (user_id, note)
-   select id, 'initial admin' from auth.users where email = 'you@example.com'
-   on conflict (user_id) do nothing;
-   ```
-
-   `community_admins` has RLS with no client policies and its grants are revoked
-   from `anon` and `authenticated`, so this must be done server-side. Every admin
-   RPC re-checks membership in this table; the app never sends an `isAdmin` flag.
-   Remove the row to revoke access.
-
-6. **Gyms.** No gyms are seeded on purpose: listing a gym is a real-world claim.
-   Members search existing rows, request a gym, and an admin approves it. Seeded
-   Chennai areas are only coarse area groups and contain no member data. To add
-   verified gyms directly:
-
-   ```sql
-   insert into public.gyms (name, city, area, address, verification_status)
-   values ('Example Strength Club', 'Chennai', 'Adyar', '1 Example Road', 'verified')
-   on conflict do nothing;
-   ```
-
-   Duplicate requests are detected by normalized name and city in
-   `community_request_gym`.
-
-## 3. Deploy the Edge Function
+## 2. Create the database and run the backend
 
 ```bash
-supabase functions deploy delete-account
+createdb forma_dev
+createdb forma_test      # used only by the backend test suite
+
+cd backend
+npm install
+cp .env.example .env     # adjust DATABASE_URL if your Postgres differs
+npm run migrate          # applies src/db/migrations in order
+npm run dev              # tsx watch on http://localhost:8787
 ```
 
-`SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are
-provided by the Edge runtime; do not hardcode them. The service-role key exists
-only inside that function and is never shipped in the app. `supabase/.env.example`
-documents that Community and account deletion need no custom secrets.
+`AUTO_MIGRATE=true` (the default in `.env.example`) also applies pending
+migrations on boot, so `npm run migrate` is optional for local work and should
+stay an explicit deploy step in production.
 
-### Community writes
+Check it:
 
-Community needs no Edge Functions. Every mutation is a `SECURITY DEFINER` RPC in
-`0007_community.sql` that authenticates the caller and re-checks blocks,
-suspension, age-band compatibility, privacy switches, and connection state
-server-side. Direct table access is SELECT-only under RLS. The app cannot write
-another member's rows or read private contact data, because those columns are not
-selected or returned by any RPC.
+```bash
+curl -s http://localhost:8787/health
+# {"status":"ok","database":"up","time":"..."}
+```
 
-- Avatars upload to the `community-avatars` bucket. Reads are public to signed-in
-  clients through a storage policy; writes are restricted to the caller's own
-  `auth.uid()` folder. The app resizes to at most 512 px and rejects files over
-  4 MB before upload.
-- Notifications are written by database triggers for connection requests and
-  acceptance, messages, comments, and likes. The app opens one per-user Realtime
-  channel; it never opens a channel per screen or per row.
-- Messaging v1 accepts text and emoji only. The server rejects links and there is
-  no attachment or image path.
-- Age bands (`minor`, `adult`, `unknown`) are derived and stored server-side.
-  Cross-band discovery, connections, and messaging are denied on the server; the
-  client does not decide compatibility.
+Health is at `/health`; every other route is under `/api/v1`.
 
-## 4. Point the app at the project
+### Email delivery
 
-Set these Xcode build settings (target **Forma** → Build Settings → + Add User-
-Defined Setting), or pass them on the command line:
+Verification and password-reset email require `SMTP_URL`. Without it those
+endpoints answer `503` and say mail is not configured; the backend never
+pretends an email was sent. Community notifications are in-app rows delivered
+over the authenticated socket, so they need no mail service.
 
-| Setting | Value |
+### Community moderators
+
+`COMMUNITY_ADMIN_EMAILS` is a comma-separated allowlist. An account whose email
+is in that list receives the admin role in Community. Every admin route re-checks
+the list server-side; the client never sends an `isAdmin` flag. Change the value
+and restart the backend to grant or revoke access.
+
+### Avatar uploads
+
+`UPLOAD_DIR` (default `./uploads`) receives avatar files. The backend serves them
+at `/uploads/<file>`; set `PUBLIC_BASE_URL` to an absolute origin if the API is
+reached through a different host so returned URLs stay absolute. `backend/uploads/`
+is ignored by git.
+
+## 3. Point the app at the backend
+
+The app reads `FORMA_API_URL` from `Info.plist`, which expands the user-defined
+build setting of the same name.
+
+- Simulator talking to a backend on the Mac: `http://localhost:8787` (already the
+  Debug default).
+- Physical device: use the Mac's LAN address, e.g. `http://192.168.1.20:8787`,
+  and make sure the backend binds an interface the phone can reach (`HOST`).
+- Production: an HTTPS origin. Set `FORMA_BUILD_CHANNEL` to the channel name you
+  want shown in the app.
+
+## 4. Accounts and authentication
+
+- Registration, login, refresh, logout, email verification, resend
+  verification, password change, password reset, and account deletion.
+- Passwords are hashed with Argon2id. Verification and reset tokens are random,
+  single-use, stored only as SHA-256 hashes, and expire.
+- Access and refresh tokens are opaque random strings; only their hashes are
+  stored. Refresh rotates the pair and revokes the previous refresh token.
+  Logout, password change, and account deletion revoke sessions server-side.
+- The client stores tokens in the Keychain (`coach.forma.tokens`), never in
+  UserDefaults or SQLite. `APIClient` refreshes a 401 once (single-flight) and
+  retries; a refresh failure clears the session.
+- Account deletion requires the current password and removes the account and its
+  Community data server-side. On-device training data is not touched.
+
+## 5. Community
+
+Community is served only by the backend. The iOS client talks to
+`/api/v1/community/...` and opens one authenticated Socket.IO connection per
+signed-in user. A connection only joins its own `user:<id>` room, so a member
+cannot subscribe to another member's stream.
+
+| Concern | Server enforcement |
 | --- | --- |
-| `SUPABASE_URL` | `https://<project-ref>.supabase.co` |
-| `SUPABASE_ANON_KEY` | the project's anon/publishable key |
+| Blocks | Discovery, connections, profiles, feed, and messaging filter and reject blocked pairs |
+| Age bands | Both accounts must be known and in the same band for discovery, connections, and messaging |
+| Suspension | Read-only access; writes are rejected |
+| Privacy | A profile must be discoverable; gym/area visibility is a separate switch |
+| Connections | `pending → accepted/declined`; messaging requires accepted |
+| Moderation | Reports, post/comment removal, suspension, gym review, audit log |
+| Rate limits | Login/register/reset are tightly limited; general API is limited too |
 
-They flow into `Info.plist` as `SUPABASE_URL` / `SUPABASE_ANON_KEY` and are read
-by `AppConfig`. Never add a service-role key to the app target.
+Socket events are `ready` (handshake confirmation), `notification`, `activity`
+(connection and post activity), and `message`. The client reconnects with
+backoff, resubscribes, and reloads lists on reconnect; REST remains the source of
+truth so a missed event delays a refresh but never corrupts state.
 
-Build again. The Setup required screen is replaced by email sign-up/sign-in.
-After confirming your email, onboarding collects training details, generates a
-plan on-device, and syncs it to Supabase.
+Gyms are user-discovered and admin-reviewed; no gyms are seeded. Chennai areas
+ship as coarse reference groups. Discovery uses only the chosen gym or area and
+never requests location permission.
 
-## 5. Device signing and notifications
+## 6. On-device data and offline behavior
 
-- Select your team under **Signing & Capabilities** for the Forma target.
-- The bundle id is `forma.coach`; change it if it is already taken.
-- The app embeds the `FormaWidgets` extension (`forma.coach.widgets`). Both
-  targets use the App Group **`group.forma.coach`**, declared in
-  `Forma/Forma.entitlements` and `FormaWidgets/FormaWidgets.entitlements`.
-- Enable that App Group for **both** App IDs in the Apple Developer portal and
-  regenerate provisioning profiles. Without it the app builds, but the widget
-  cannot read the snapshot on a device.
-- Notifications are local calendar triggers, so no push certificates are
-  needed. iOS asks for permission the first time reminders are saved, including
-  during onboarding. The Reminders screen reports the count iOS actually has
-  pending, never an optimistic value.
-- To test on a physical iPhone, trust the developer certificate in
-  Settings → General → VPN & Device Management.
+- SQLite through GRDB, WAL journal, foreign keys on, 5-second busy timeout.
+- **The SQLite file is not encrypted.** Forma does not use SQLCipher or a custom
+  encryption layer. It relies on the iOS app sandbox and system data protection;
+  anyone with the device passcode or an unlocked backup can read it. Do not
+  describe local storage as encrypted.
+- Completing a workout, logging a check-in, editing reminders, and saving a form
+  analysis work with no network.
+- Community, account screens, and avatars require the backend. Their empty and
+  failure states say so; nothing is queued for fake delivery and no remote write
+  is claimed while offline.
 
-## 6. Apple Health
+## 7. Apple Health
 
-Health access is opt-in from Profile → Apple Health. The app requests read-only
-access to workouts, active energy, steps, and heart rate. HealthKit does not
-reveal read authorization, so Forma reports what a fetch actually returned and
-labels the source as Apple Health. It never writes to Health.
+Opt-in from Profile → Apple Health. Read-only access to workouts, active energy,
+steps, and heart rate. HealthKit does not reveal read authorization, so Forma
+reports what a fetch actually returned and labels the source. Nothing is written
+to Health, logged, or uploaded.
 
-`Info.plist` already contains the required usage strings.
+## 8. Camera form analysis
 
-## 7. Camera form analysis
+Entered from **Workouts → Camera form check**, or the form row inside an active
+workout for a mapped movement.
 
-The camera form check is entered from **Workouts → Camera form check**, or from
-the Form check row inside an active workout when the current movement has a
-matching analysis (bodyweight squat, push-up, walking lunge). Jumping jack is
-available from the setup screen even though no catalog exercise maps to it.
+- `AVCaptureSession` at 720p with a serial, throttled Vision pipeline that drops
+  frames instead of freezing the preview.
+- `VNDetectHumanBodyPoseRequest` is Apple's general 2D body detector, not a
+  trained exercise classifier. No 3D pose and no Core ML model.
+- Rep counting is a separate state machine with hysteresis, a settled start, a
+  bottom hold, minimum duration, cooldown, and confidence gating.
+- Feedback is measured-only and labelled observed / limited / unavailable.
+  There is no form score and no injury or risk claim.
+- Finished sessions are stored in the local database as a workout session plus a
+  one-to-one form-analysis record. No frames or joint coordinates are kept.
 
-What is implemented:
-
-- `AVCaptureSession` at 720p with a video-data output, a serial analysis
-  pipeline, frame dropping, and 10 fps throttling (slower when the device is
-  warm). The preview keeps rendering while analysis drops frames.
-- Apple Vision 2D body pose (`VNDetectHumanBodyPoseRequest`). This is Apple's
-  general body detector, **not** a trained exercise classifier. No 3D request
-  and no Core ML model are integrated in this build.
-- Exercise-specific analysers for squat, push-up, lunge, and jumping jack using
-  only the joints each movement needs. Rep counting is a separate state machine
-  (settled start → descending → bottom hold → ascending → completed) with
-  hysteresis, minimum duration, cooldown, and confidence gating.
-- Feedback is measured-only, labelled observed / limited / unavailable, and
-  lists the body points used and the measured values. There is no form score and
-  no injury or risk claim. While tracking is insufficient the live screen shows
-  exactly: **“Rep counting paused — body movement cannot be tracked reliably.”**
-  If no reliable count was established for the whole session, the summary shows
-  exactly: **“Rep counting unavailable — movement could not be tracked
-  reliably.”**
-- A finished session is saved to the existing workout history: a
-  `workout_sessions` row (no completed sets) plus a one-to-one
-  `form_analysis_sessions` row from migration `0006_form_analysis.sql`. RLS
-  restricts both to `user_id = auth.uid()`. If the write fails, the session is
-  queued in `Application Support/Forma` for that user, merged into history
-  immediately, and retried with an idempotent upsert on the next load, foreground
-  refresh, manual refresh, or network reconnect. Only session metadata and
-  measured observations are queued — never frames or keypoints.
-
-The required `NSCameraUsageDescription` is in `Info.plist`. Analysis is opt-in
-and can be denied without affecting the rest of the app.
-
-### Privacy
-
-Frames are analysed in memory on the device. Nothing is recorded, written to
-disk, uploaded to Supabase, or shared with any other service. Joint coordinates
-never leave the process. The summary screen shows only measured text (exercise,
-duration, counted reps, coverage, measured observations, limitations) — never
-images, video, frames, or keypoints. The pipeline releases the camera on pause,
-end, backgrounding, and screen dismissal.
-
-The only camera-derived data that is persisted is the structured session record
-described above (rep count, availability, coverage, interruptions, observation
-text, measured values, limitations). The offline retry queue lives in the app's
-Application Support directory and is scoped per user; it is removed after a
-successful sync or sign-out.
+Frames are analysed in memory, never recorded, uploaded, or shared. The
+Simulator has no camera, so it verifies only the permission and
+camera-unavailable paths.
 
 ### Validation status — physical device required
 
-The Simulator has no camera, so it only verifies the permission and
-camera-unavailable paths. **Pose accuracy, overlay alignment, lighting and
-occlusion handling, and rep-count reliability have not been validated on a
-physical iPhone in this build.** The UI states this limitation factually in the
-setup and summary screens, and no production-accuracy claim is made. A
-real-device pass must still cover:
+Pose accuracy, overlay alignment, lighting/occlusion handling, and rep-count
+reliability have **not** been validated on a physical iPhone. A device pass must
+cover framing at the documented distances, partial and fast reps, poor lighting,
+motion blur, loose clothing, occlusion, a second person entering the frame,
+camera interruptions, thermal throttling, and pause/resume.
 
-1. Front and rear camera at the documented distances and angles for each
-   exercise, checking that the skeleton lines up with the body at the edges of
-   the frame (aspect-fill mapping) and in both camera positions.
-2. Squat / push-up / lunge / jumping jack sets at normal, slow, and fast tempos,
-   confirming that deliberate partial reps are rejected rather than counted.
-3. Poor lighting, motion blur, loose clothing, partial occlusion, one person
-   leaving and re-entering, and a second person entering the frame.
-4. Backgrounding, phone-call-style camera interruptions, pause/resume, thermal
-   throttling, and ending the session.
-5. Comparing the app's per-rep observations against manual video review before
-   calling any exercise “validated”. Until then, treat counts and observations
-   as experimental even when they look plausible.
+## 9. Home Screen widget
 
-## 8. Home Screen widget
+`FormaWidgets` (bundle `forma.coach.widgets`) supplies **Fitness Command
+Center** in `systemSmall`, `systemMedium`, and `systemLarge`. It reads a compact,
+account-scoped `WidgetSnapshot` from the App Group `group.forma.coach`; it never
+calls the network and never walks workout history. The timeline refreshes at the
+next local midnight.
 
-`FormaWidgets` is a WidgetKit app extension embedded in Forma. It supplies
-**Fitness Command Center** in the `systemSmall`, `systemMedium`, and
-`systemLarge` families. The widget is available from the iOS widget gallery at
-runtime; the extension target is `forma.coach.widgets` and its extension point
-is `com.apple.widgetkit-extension`.
+The snapshot contains training summary values and Community **counts** only —
+never message text, member identities, gym details, notification bodies, health
+data, location, or credentials. Sign-out and account deletion clear it.
 
-### Shared data
+Provisioning: enable the App Group for both `forma.coach` and
+`forma.coach.widgets` in the Apple Developer portal and regenerate profiles.
+Simulator builds embed the entitlement.
 
-The app and extension both compile `native/Shared/` and communicate through the
-App Group `group.forma.coach`:
+## 10. Tests
 
-| Type | Responsibility |
-| --- | --- |
-| `WidgetSnapshot` | Codable, versioned, account-scoped summary of plan, today, week, streak, totals and Community counts |
-| `WidgetSharedDataStore` | App Group codec, schema/account validation, Community-count overlay |
-| `WidgetTimelineLogic` | Next-midnight refresh date, freshness label, staleness threshold |
-| `WidgetSnapshotBuilder` (app) | Builds the snapshot from `WorkoutPlan`, `Preferences`, `WorkoutSession`, `TrainingStats`, and `ActiveWorkout` |
-| `WidgetPublisher` (app) | Saves the snapshot, clears it on sign-out, reloads the widget after real changes |
+### Backend
 
-The training snapshot and Community counts are stored under separate keys.
-Counts carry the account id they belong to; a snapshot only overlays counts for
-its own account, so a late or early Community write cannot leak across accounts
-or depend on write order. Sign-out, account deletion, and preview exit clear the
-shared state.
-
-The widget performs no network requests. The app reloads the timeline after
-onboarding, plan or preference changes, workout start/finish/discard,
-form-analysis saves, data loads, and changes in Community counts. The timeline
-also refreshes at the next local midnight.
-
-### Deep links
-
-The extension uses the app's existing `forma://` routes:
-
-```
-forma://today
-forma://start-workout
-forma://workouts      (forma://plan also maps here)
-forma://progress
-forma://community
-forma://community/requests
-forma://community/messages
+```bash
+cd backend
+TEST_DATABASE_URL=postgres://localhost:5432/forma_test npm test
+npm run typecheck
 ```
 
-`start-workout` routes through the existing Home flow and starts a real
-`ActiveWorkout`; it does not write a completed session. Auth callback URLs are
-handled before navigation parsing and are rejected by the navigation deep-link
-parser.
+The suite runs the real HTTP app against PostgreSQL (`forma_test`), including
+registration/login/refresh rotation/revocation, verification and reset flows via
+a recording mailer, Community privacy and block enforcement, the connection
+state machine, messaging dedupe, moderation and audit, gym verification, and a
+real raw-WebSocket Socket.IO delivery test. Test files run serially because they
+truncate shared tables.
 
-### Configuration
-
-The small family supports a `WidgetConfigurationIntent` with automatic, today,
-weekly, and consistency emphasis. Medium and large always show their full
-layout. All families support light and dark appearances and derive every value
-from the snapshot.
-
-### Privacy
-
-The widget shows only workout summaries and Community **counts**. Message text,
-member identities, gym details, notification bodies, health data, location, and
-API keys are never written to the shared container. The snapshot contains only
-the signed-in account's id.
-
-### Testing
-
-- `FormaTests` covers the codec, schema versioning, corrupt and missing data,
-  account isolation, count change detection, builder accuracy for every today
-  state, weekly totals, streak, reps, timeline/freshness logic, deep links, and
-  an App Group round-trip.
-- The extension is registered by PlugInKit and the App Group container resolves
-  on the Simulator.
-- Adding a widget from the iOS gallery cannot be automated with `simctl`, so
-  gallery placement and rendering are not verified by the automated tests. Do a
-  physical-device pass:
-
-1. Install a signed build via Xcode, then long-press the Home Screen → **+** →
-   search **Forma** → add small, medium, and large.
-2. Complete onboarding and a workout; confirm counts, minutes, goal, streak, and
-   the seven-day chart match the app.
-3. Check rest day, unscheduled day, no-plan, and no-history states, plus light
-   and dark appearance and larger Dynamic Type sizes.
-4. Tap each family and each Community count row to confirm the correct tab or
-   screen opens.
-5. Sign out and confirm the widget returns to the empty state instead of showing
-   the previous account.
-6. Background the app after a change and confirm the widget refreshes; leave it
-   overnight to confirm the date-based rollover.
-
-## 9. Tests
-
-`FormaTests` is a hosted unit-test target covering the plan validator (schedule,
-duration, equipment, duplicates, safe volume), exercise search/filtering/
-pagination, Community JSON decoding and defaults, and the form-analysis core:
-pose geometry and confidence filtering, smoothing, rep-state transitions,
-incomplete-rep rejection, per-exercise analysers, feedback wording, the
-pipeline with a scripted pose detector, the session recorder, preview-to-view
-alignment, the view model's permission/camera/pause paths, availability
-classification, and the saved-session record, per-user offline queue and
-rep-total logic. It also covers the widget data layer: snapshot
-encode/decode, schema and corruption rejection, account isolation, Community
-count overlay and change detection, builder output for no-plan/rest/workout/
-completed/in-progress/not-scheduled days, weekly totals, streak, reps, timeline
-refresh and freshness, deep-link parsing, and an App Group round-trip.
-All form-analysis tests use synthetic pose fixtures; synthetic fixtures prove the
-logic, not real-world accuracy. The Community model tests prove decoding and
-display logic against representative payloads, not live backend behavior. Run it
-alone with:
+### Native unit tests
 
 ```bash
 cd native
@@ -366,93 +230,105 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   -only-testing:FormaTests
 ```
 
-`LiveBackendTests` in the same target signs in to a real project and checks the
-deployed Community RPCs: the bootstrap payload, discovery privacy (no contact or
-location fields), messaging denial without a connection, and admin RPC rejection
-for non-admins. They **skip** unless all four variables are set, and a skip is
-not evidence that the backend works:
+Covers the local SQLite layer, plan validation and generation, exercise search,
+Community JSON decoding and display logic, form-analysis geometry/pipeline/
+recorder/queue, and the widget snapshot/timeline layer. Form-analysis fixtures
+are synthetic; they prove the logic, not camera accuracy.
 
-```bash
-FORMA_SUPABASE_URL=https://<ref>.supabase.co \
-FORMA_ANON_KEY=<anon-key> \
-FORMA_TEST_EMAIL=<confirmed-test-user> \
-FORMA_TEST_PASSWORD=<password> \
-  xcodebuild test ... -only-testing:FormaTests/LiveBackendTests
-```
-
-`FormaUITests` drives the real app end-to-end on a simulator: setup screen,
-preview entry, the seven preview onboarding steps (an optional eighth Community
-step appears only with a real backend and account), plan generation, all five
-tabs (including the honest preview Community state), logging a set with the rest
-timer, backgrounding and reactivation, finishing and saving the session,
-reminders scheduling with the system permission prompt, launch persistence, and
-the camera form-check setup screen (including the honest “camera unavailable”
-state on the Simulator).
+### Native UI test
 
 ```bash
 cd native
+xcrun simctl uninstall <device-udid> forma.coach
+xcrun simctl spawn <device-udid> defaults delete forma.coach forma.previewModeEnabled
+
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild test -project Forma.xcodeproj -scheme Forma \
   -destination 'platform=iOS Simulator,id=<device-udid>' \
   -resultBundlePath /tmp/forma-uitests.xcresult
 ```
 
-The test needs a clean install to exercise the setup screen:
+With the backend reachable at `localhost:8787`, the test creates a real account
+through the UI, verifies the live Community bootstrap, opens the community
+profile editor, and deletes the account. Without it, the account form is not
+submitted and the Community-unavailable copy is verified instead.
+
+Screenshots are attached to the result bundle:
 
 ```bash
-xcrun simctl uninstall <device-udid> forma.coach
+xcrun xcresulttool export attachments \
+  --path /tmp/forma-uitests.xcresult --output-path /tmp/forma-ui-attachments
 ```
 
-Screenshots are attached to the result bundle and can be exported with
-`xcrun xcresulttool export attachments`.
+## 11. Device signing and notifications
 
-## 10. Project layout
+- Select your team under **Signing & Capabilities** for the Forma target.
+- The bundle id is `forma.coach`; change it if it is taken.
+- The app embeds the `FormaWidgets` extension and both targets share
+  `group.forma.coach` (see the entitlements files).
+- Notifications are local calendar triggers; no push certificates are needed.
+  iOS asks for permission when reminders are first saved. The Reminders screen
+  reports what iOS actually has pending.
+
+## 12. Project layout
 
 ```
-native/Forma/
-  Core/        AppConfig, models, formatters, theme tokens
-  UI/          Shared components
-  Store/       AppModel (@Observable, @MainActor)
-  Services/    Supabase, HealthKit, notifications, plan engine, storage
-  Community/   Models, service, store, root/home/discover/connections,
-               messages, feed, profile/settings, notifications, admin
-  FormAnalysis/ Camera, Vision pose, analysers, rep engine, feedback, session
-  Widget/      WidgetSnapshotBuilder, WidgetPublisher, AppModel extensions
-  Screens/     Root, onboarding, tabs, workout, library, settings
-  Resources/   Fonts, exercise catalog
-native/Shared/          WidgetSnapshot, WidgetSharedDataStore,
-                        WidgetTimelineLogic (compiled into both targets)
-native/FormaWidgets/    WidgetKit extension: bundle, timeline, configuration
-                        intent, views, theme
-native/FormaTests/      Hosted unit tests
-native/FormaUITests/    XCUITest coverage
-supabase/               Migrations and the delete-account Edge Function
+backend/                 Node + TypeScript + Express + PostgreSQL + Socket.IO
+  src/auth/              Argon2id, opaque tokens, middleware, mailer, routes
+  src/community/         Community service, REST routes, Socket.IO realtime
+  src/db/                Pool, advisory-locked migrator, SQL migrations
+  tests/                 Integration tests against forma_test
+native/
+  Forma/
+    Core/                AppConfig, models, formatters, theme, deep links
+    Database/            GRDB database, migrations, records, local repository
+    UI/                  Shared components
+    Store/               AppModel (@Observable, @MainActor)
+    Services/            APIClient, account, keychain, health, notifications,
+                         plan engine, validator, profile photo store
+    Community/           Models, API service + socket, store, all screens
+    FormAnalysis/        Camera, Vision pose, analysers, rep engine, recorder
+    Widget/              Snapshot builder and publisher
+    Screens/             Root, onboarding, tabs, workout, library, settings
+    Resources/           Fonts, exercise catalog
+  Shared/                Widget snapshot, App Group store, timeline logic
+  FormaWidgets/          WidgetKit extension
+  FormaTests/            Hosted unit tests
+  FormaUITests/          XCUITest coverage
 ```
 
-## Security checklist
+## 13. Security checklist
 
-- Only the anon/publishable key is in the app; RLS restricts every table to the
-  signed-in user or to data a Community RPC deliberately exposes.
-- The service-role key exists only inside the `delete-account` Edge Function
-  runtime.
-- Auth sessions are persisted by the Supabase SDK (Keychain-backed) and cleared
-  on sign out or account deletion.
-- Health data is read on demand and is never logged or uploaded.
-- Community mutations are RPC-only and re-check blocks, suspension, age-band
-  compatibility, privacy switches, and connection state on the server.
-- Admin RPCs re-check `community_admins` on every call; the client cannot grant
-  itself moderation access.
-- Discovery, feed, profile, and messaging RPCs never return email, phone,
-  address, coordinates, presence, or exact distance.
-- The widget App Group contains only a compact account-scoped training summary
-  and Community counts. It never contains message text, notification bodies,
-  health data, location, or credentials, and the snapshot is cleared on sign-out,
-  account change, or account deletion.
-- Community never requests location permission and never runs background
-  location tracking.
-- Messaging v1 is text and emoji only; the server rejects links and there is no
-  attachment or image path. Avatars are the only upload and are owner-scoped.
-- Legacy AI conversation data is archived in `archive_ai_coach`, a schema with
-  all grants revoked from `anon` and `authenticated`.
-- Camera frames, audio, video, and joint coordinates stay in memory. Nothing is
-  uploaded or written to disk, and no recording permission is requested.
+- Passwords: Argon2id with per-user salts. Constant-time dummy verification
+  equalises unknown-account timing.
+- Tokens: opaque 256-bit values, stored as SHA-256 hashes; refresh rotation with
+  revocation; sessions revoked on logout, password change, and deletion.
+- Client tokens: Keychain only.
+- Transport: TLS in production. The localhost default is development-only.
+- Community: every read and write re-checks the signed-in identity, blocks,
+  age-band compatibility, suspension, privacy switches, and connection state.
+- Admin: allowlist re-checked per request.
+- Discovery responses never include email, phone, address, coordinates,
+  presence, or exact distance.
+- Avatars are the only upload (JPEG/PNG, 5 MB server limit, 512 px client
+  resize); messages are text and emoji only, and links are rejected.
+- Camera frames and joint coordinates never leave the process.
+- The widget App Group holds only a compact training summary and Community
+  counts.
+
+## 14. Known limitations and unverified areas
+
+- The SQLite database is not encrypted.
+- No push notifications (APNs); notifications are local reminders plus in-app
+  Community rows.
+- Training data is intentionally device-local and does not sync through the
+  backend. Signing in never moves or merges it.
+- SMTP delivery is not exercised against a real mail provider in this checkout;
+  tests use a recording mailer.
+- Camera/pose accuracy and rep reliability are unverified on a physical device.
+- Widget gallery placement and pixel rendering cannot be driven by `simctl`;
+  App Group sharing, snapshot contents, and app-side reload triggers are
+  covered by tests, including an App Group round-trip.
+- The repository still contains legacy `src/` (Expo prototype) and `supabase/`
+  directories from the previous architecture; neither is compiled into or used
+  by the native app.

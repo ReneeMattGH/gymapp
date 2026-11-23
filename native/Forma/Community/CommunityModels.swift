@@ -853,6 +853,6 @@ struct CommunityError: LocalizedError, Equatable {
     var errorDescription: String? { message }
 
     static let notConfigured = CommunityError(
-        message: "Community needs a connected Supabase project. This build has no backend credentials."
+        message: "Community needs the Forma backend. This build has no backend connection yet."
     )
 }

@@ -25,12 +25,6 @@ struct WorkoutsView: View {
                         title: "Your week",
                         subtitle: model.plan?.name ?? "No active plan yet."
                     )
-                    if model.isPreview {
-                        NoticeBanner(
-                            message: "Preview build: the plan is stored on this device. Connect Supabase to sync it across devices.",
-                            systemImage: "testtube.2"
-                        )
-                    }
                     if let startError {
                         ErrorBanner(message: startError)
                     }

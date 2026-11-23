@@ -789,9 +789,7 @@ struct WorkoutSummaryView: View {
                 }
                 .padding(.top, Spacing.sm)
 
-                Text(model.isPreview
-                     ? "Saved on this device. Open Progress to see it in your history."
-                     : "Saved to your account. Open Progress to see it in your history.")
+                Text("Saved on this device. Open Progress to see it in your history.")
                     .font(FormaFont.bodyFont(10.5))
                     .foregroundStyle(palette.textTertiary)
                     .multilineTextAlignment(.center)

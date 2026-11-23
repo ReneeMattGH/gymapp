@@ -1,26 +1,21 @@
 import Foundation
 
 struct AppConfig: Sendable {
-    let supabaseURL: URL?
-    let supabaseAnonKey: String
+    /// The Forma backend origin. Empty in builds that were not pointed at a server.
+    let apiBaseURL: URL?
     let buildChannel: String
 
     static let current: AppConfig = {
         let info = Bundle.main.infoDictionary ?? [:]
-        let urlString = (info["SUPABASE_URL"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = (info["SUPABASE_ANON_KEY"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let channel = (info["FormaBuildChannel"] as? String ?? "production").trimmingCharacters(in: .whitespacesAndNewlines)
-        return AppConfig(
-            supabaseURL: URL(string: urlString),
-            supabaseAnonKey: key,
-            buildChannel: channel
-        )
+        let raw = (info["FORMA_API_URL"] as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let channel = (info["FormaBuildChannel"] as? String ?? "production")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let url = URL(string: raw).flatMap { $0.scheme?.hasPrefix("http") == true ? $0 : nil }
+        return AppConfig(apiBaseURL: url, buildChannel: channel)
     }()
 
-    var isBackendConfigured: Bool {
-        guard let supabaseURL, supabaseURL.scheme?.hasPrefix("http") == true else { return false }
-        return !supabaseAnonKey.isEmpty
-    }
+    var isBackendConfigured: Bool { apiBaseURL != nil }
 
     var isDebugBuild: Bool {
         #if DEBUG
@@ -29,8 +24,4 @@ struct AppConfig: Sendable {
         false
         #endif
     }
-
-    /// Demo data is only ever available in a debug build and only when the user
-    /// explicitly chooses it on the setup screen.
-    var allowsPreviewData: Bool { isDebugBuild }
 }

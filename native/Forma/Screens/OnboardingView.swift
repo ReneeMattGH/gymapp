@@ -24,7 +24,7 @@ struct OnboardingView: View {
 
     private var totalSteps: Int { communityStepAvailable ? 8 : 7 }
     private var communityStepAvailable: Bool {
-        model.communityService != nil && model.user != nil && !model.isPreview
+        model.communityService != nil && model.remoteAccount != nil
     }
     private static let durations = [20, 30, 45, 60, 75]
     private static let reminderTimes = ["07:00", "08:00", "12:00", "17:30", "18:00", "19:00", "20:00"]
@@ -603,7 +603,7 @@ struct OnboardingView: View {
     @MainActor
     private func finish() async {
         guard let user = model.user else {
-            error = "Your session expired. Sign in again to finish onboarding."
+            error = "Your local profile could not be prepared. Restart the app and try again."
             return
         }
         guard !finishing else { return }
@@ -626,7 +626,7 @@ struct OnboardingView: View {
             goals: orderedGoals,
             limitations: trimmedLimitations.isEmpty ? nil : trimmedLimitations,
             onboardingCompleted: true,
-            createdAt: model.profile?.createdAt ?? Date()
+            createdAt: model.profile?.createdAt ?? StoredTimestamp.now()
         )
         let preferences = Preferences(
             userId: user.id,
@@ -920,9 +920,7 @@ struct PlanReadyView: View {
 
                 NoticeBanner(message: outcome.reminderMessage, systemImage: "bell", accent: true)
 
-                Text(model.isPreview
-                     ? "Preview build: everything is stored on this device. Connect Supabase to sync across devices."
-                     : "Generated on-device from your answers. Open Workouts to rebuild it whenever your schedule changes.")
+                Text("Generated on-device from your answers and stored in this device's database. Open Workouts to rebuild it whenever your schedule changes.")
                     .font(FormaFont.bodyFont(11))
                     .foregroundStyle(palette.textTertiary)
                     .multilineTextAlignment(.center)

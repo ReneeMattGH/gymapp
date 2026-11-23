@@ -9,23 +9,12 @@ final class FormaFlowTests: XCTestCase {
         app.launch()
     }
 
-    func testPreviewOnboardingWorkoutAndTabs() throws {
-        XCTAssertTrue(app.staticTexts["SETUP REQUIRED"].waitForExistence(timeout: 20))
-        snap("01-setup-required")
-
-        let previewButton = app.buttons["Explore preview data"]
-        scrollUntilHittable(previewButton)
-        previewButton.tap()
-
-        let explore = app.alerts.buttons["Explore"]
-        XCTAssertTrue(explore.waitForExistence(timeout: 5))
-        explore.tap()
-
+    func testLocalProfileOnboardingWorkoutAndTabs() throws {
         let nameField = app.textFields["What should we call you?"]
-        XCTAssertTrue(nameField.waitForExistence(timeout: 15), "Onboarding did not appear")
+        XCTAssertTrue(nameField.waitForExistence(timeout: 25), "Onboarding did not appear on a fresh install")
+        snap("01-onboarding-about")
         nameField.tap()
         nameField.typeText("Matt")
-        snap("02-onboarding-about")
 
         tapButton("Continue")
         settle()
@@ -103,19 +92,34 @@ final class FormaFlowTests: XCTestCase {
 
         app.tabBars.buttons["Community"].tap()
         sleep(2)
+        let communityUnavailable = app.staticTexts.matching(
+            NSPredicate(format: "label IN %@", ["Sign in to join the community", "Community needs the Forma backend"])
+        ).firstMatch
         XCTAssertTrue(
-            app.staticTexts["Community is off in preview mode"].waitForExistence(timeout: 10),
-            "Preview Community must honestly explain that no real members exist"
+            communityUnavailable.waitForExistence(timeout: 10),
+            "Community must honestly explain why it is unavailable while signed out"
         )
         XCTAssertTrue(
             app.staticTexts["It does not create sample members, posts or messages to fill space."].exists,
-            "Preview Community must state that no sample data is generated"
+            "Community must state that no sample data is generated"
         )
         sleep(1)
-        snap("24-community-preview")
+        snap("24-community-unavailable")
 
         app.tabBars.buttons["Profile"].tap()
         sleep(1)
+        XCTAssertTrue(
+            app.staticTexts["PROFILES"].waitForExistence(timeout: 8),
+            "Local profiles section is missing"
+        )
+        XCTAssertTrue(
+            app.staticTexts["Stored on this device"].exists,
+            "Profile header must say data is stored on this device"
+        )
+        snap("24b-local-profiles")
+
+        verifyAccountScreen()
+
         let remindersRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Reminders")).firstMatch
         scrollUntilHittable(remindersRow)
         remindersRow.tap()
@@ -211,6 +215,153 @@ final class FormaFlowTests: XCTestCase {
         sleep(1)
         XCTAssertFalse(app.staticTexts["Finish a session to start the chart."].exists, "Saved session is missing from progress charts")
         snap("32-relaunch-progress")
+    }
+
+    /// Opens the remote Account screen. With the dev backend at
+    /// http://localhost:8787 running, it also creates and deletes a real
+    /// account through the UI; without it, it only checks the signed-out form.
+    private func verifyAccountScreen() {
+        let accountRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Connect account")).firstMatch
+        scrollUntilHittable(accountRow)
+        XCTAssertTrue(accountRow.exists, "The Forma account row is missing from Profile")
+        accountRow.tap()
+
+        XCTAssertTrue(app.staticTexts["Forma account."].waitForExistence(timeout: 8), "Account screen did not open")
+        snap("24c-account-signed-out")
+        XCTAssertTrue(app.buttons["Create account"].firstMatch.exists, "Create account option is missing")
+
+        guard backendIsReachable() else {
+            print("Backend not reachable at localhost:8787; the account form was not submitted.")
+            app.navigationBars.buttons.firstMatch.tap()
+            return
+        }
+
+        let suffix = String(UUID().uuidString.prefix(8)).lowercased()
+        let email = "uitest-\(suffix)@example.com"
+        let password = "forma-uitest-\(suffix)"
+
+        app.buttons["Create account"].firstMatch.tap()
+        let nameField = app.textFields["How members see you"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5))
+        nameField.tap()
+        nameField.typeText("UI Tester")
+
+        let emailField = app.textFields["you@example.com"]
+        emailField.tap()
+        emailField.typeText(email)
+
+        let passwordField = app.secureTextFields["At least 10 characters"]
+        passwordField.tap()
+        passwordField.typeText(password)
+
+        let submit = app.buttons.matching(NSPredicate(format: "label == %@", "Create account")).allElementsBoundByIndex.last
+        XCTAssertNotNil(submit, "Create account submit button is missing")
+        submit?.tap()
+
+        XCTAssertTrue(app.staticTexts["UNVERIFIED"].waitForExistence(timeout: 15), "A real registration did not produce a signed-in account: \(email)")
+        XCTAssertTrue(app.staticTexts[email].exists, "The signed-in account email is missing")
+        snap("24d-account-signed-in")
+
+        let signOut = app.buttons["Sign out"]
+        scrollUntilHittable(signOut)
+        signOut.tap()
+        XCTAssertTrue(app.buttons["Sign in"].firstMatch.waitForExistence(timeout: 10), "Signing out did not return to the signed-out form")
+        app.swipeDown()
+        app.swipeDown()
+
+        let signInChip = app.buttons["Sign in"].firstMatch
+        XCTAssertTrue(signInChip.waitForExistence(timeout: 5))
+        signInChip.tap()
+
+        let signInEmail = app.textFields["you@example.com"]
+        XCTAssertTrue(signInEmail.waitForExistence(timeout: 5))
+        XCTAssertEqual(signInEmail.value as? String, email, "The email field should still hold the account address after signing out")
+        let signInPassword = app.secureTextFields["Your password"]
+        signInPassword.tap()
+        signInPassword.typeText(password)
+        let signIn = app.buttons.matching(NSPredicate(format: "label == %@", "Sign in")).allElementsBoundByIndex.last
+        XCTAssertNotNil(signIn, "Sign in submit button is missing")
+        signIn?.tap()
+        XCTAssertTrue(app.staticTexts["UNVERIFIED"].waitForExistence(timeout: 15), "Signing back in with the real password failed: \(email)")
+        snap("24e-account-signed-in-again")
+
+        verifyLiveCommunity()
+
+        let deleteButton = app.buttons["Delete account"]
+        scrollUntilHittable(deleteButton)
+        deleteButton.tap()
+        let deletePassword = app.secureTextFields["Account password"]
+        XCTAssertTrue(deletePassword.waitForExistence(timeout: 5))
+        deletePassword.tap()
+        deletePassword.typeText(password)
+        let confirmDelete = app.buttons["Delete account permanently"]
+        scrollUntilHittable(confirmDelete)
+        confirmDelete.tap()
+
+        XCTAssertTrue(app.buttons["Sign in"].firstMatch.waitForExistence(timeout: 15), "Deleting the account did not return to the signed-out form")
+        snap("24f-account-deleted")
+
+        app.tabBars.buttons["Community"].tap()
+        XCTAssertTrue(
+            app.staticTexts["Sign in to join the community"].waitForExistence(timeout: 15),
+            "Community should return to the signed-out notice after the account is deleted"
+        )
+        snap("24g-community-signed-out")
+        app.tabBars.buttons["Profile"].tap()
+        sleep(1)
+
+        app.navigationBars.buttons.firstMatch.tap()
+        sleep(1)
+    }
+
+    /// With a real signed-in account, Community must render the live bootstrap
+    /// from the backend instead of the unavailable notice.
+    private func verifyLiveCommunity() {
+        app.tabBars.buttons["Community"].tap()
+        XCTAssertTrue(
+            app.staticTexts["Train together."].waitForExistence(timeout: 20),
+            "Signed-in Community did not load from the backend"
+        )
+        XCTAssertTrue(
+            app.staticTexts["Create your community profile"].waitForExistence(timeout: 10),
+            "A new account should be asked to create a community profile"
+        )
+        let placeCard = app.staticTexts.matching(
+            NSPredicate(format: "label IN %@", ["No gym or area yet", "Area-only selection. No gym chosen."])
+        ).firstMatch
+        XCTAssertTrue(placeCard.waitForExistence(timeout: 10), "Community must show the member's gym or area selection")
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "at your gym")).firstMatch.exists,
+            "Community statistics are missing"
+        )
+        sleep(1)
+        snap("24e2-community-live")
+
+        app.buttons["Set up profile"].firstMatch.tap()
+        XCTAssertTrue(
+            app.navigationBars["Create profile"].waitForExistence(timeout: 8),
+            "Community profile editor did not open"
+        )
+        snap("24e3-community-profile-editor")
+        app.navigationBars.buttons.firstMatch.tap()
+        sleep(1)
+
+        app.tabBars.buttons["Profile"].tap()
+        sleep(1)
+    }
+
+    private func backendIsReachable() -> Bool {
+        guard let url = URL(string: "http://localhost:8787/health") else { return false }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 3
+        var reachable = false
+        let semaphore = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: request) { _, response, _ in
+            reachable = (response as? HTTPURLResponse)?.statusCode == 200
+            semaphore.signal()
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 5)
+        return reachable
     }
 
     private func startWorkout() {

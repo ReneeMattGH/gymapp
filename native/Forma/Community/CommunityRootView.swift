@@ -49,7 +49,7 @@ struct CommunityRootView: View {
     @State private var showReportFor: CommunityReportPayload?
 
     private var isAvailable: Bool {
-        model.communityService != nil && model.user != nil && !model.isPreview
+        model.communityService != nil && model.remoteAccount != nil
     }
 
     var body: some View {
@@ -58,7 +58,7 @@ struct CommunityRootView: View {
                 if isAvailable {
                     content
                 } else {
-                    CommunityUnavailableView(isPreview: model.isPreview, isSignedOut: model.user == nil)
+                    CommunityUnavailableView(backendAvailable: model.communityService != nil)
                 }
             }
             .background(FormaBackground())
@@ -66,8 +66,13 @@ struct CommunityRootView: View {
                 destination(for: route)
             }
         }
-        .task(id: model.user?.id) {
-            await store.configure(service: model.communityService, userID: model.user?.id)
+        .task(id: "\(model.remoteAccount?.id ?? "")|\(model.user?.id ?? "")") {
+            await store.configure(
+                service: model.communityService,
+                userID: model.remoteAccount?.id,
+                widgetAccountID: model.user?.id,
+                age: model.profile?.age
+            )
             applyDeepLink(model.pendingDeepLink)
         }
         .onChange(of: model.pendingDeepLink, initial: true) { _, link in
@@ -146,7 +151,7 @@ struct CommunityRootView: View {
 
                 switch store.phase {
                 case .unavailable:
-                    CommunityUnavailableView(isPreview: false, isSignedOut: false)
+                    CommunityUnavailableView()
                 case .loading:
                     LoadingCard(label: "Loading your community")
                 case .failed(let message):
@@ -255,8 +260,7 @@ struct CommunityRootView: View {
 // MARK: - Unavailable
 
 struct CommunityUnavailableView: View {
-    var isPreview: Bool
-    var isSignedOut: Bool
+    var backendAvailable: Bool = false
 
     @Environment(\.formaPalette) private var palette
 
@@ -269,16 +273,20 @@ struct CommunityUnavailableView: View {
                     subtitle: "Community shows people who actually created an account, chose a gym or area, and opted into discovery."
                 )
                 FormaCard(style: .raised) {
-                    Image(systemName: isPreview ? "person.crop.circle.badge.exclamationmark" : "person.2.slash")
+                    Image(systemName: "person.2.slash")
                         .font(.system(size: 28))
                         .foregroundStyle(palette.accentText)
-                    Text(headline)
+                    Text(backendAvailable ? "Sign in to join the community" : "Community needs the Forma backend")
                         .font(FormaFont.displayFont(18, weight: .semibold))
                         .foregroundStyle(palette.text)
-                    Text(detail)
-                        .font(FormaFont.bodyFont(13))
-                        .foregroundStyle(palette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(
+                        backendAvailable
+                            ? "Community is served by the Forma backend and only shows real accounts. Sign in from the Account screen to find members, chat and post. Nothing here is simulated while you are signed out."
+                            : "Your training data is stored on this device. Members, posts, messages and notifications are served by the Forma backend. This build has no backend address, so nothing here is simulated while it is unavailable."
+                    )
+                    .font(FormaFont.bodyFont(13))
+                    .foregroundStyle(palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
                 FormaCard {
                     Text("What Community does not do")
@@ -295,26 +303,6 @@ struct CommunityUnavailableView: View {
             .frame(maxWidth: 560)
             .frame(maxWidth: .infinity)
         }
-    }
-
-    private var headline: String {
-        if isPreview {
-            return "Community is off in preview mode"
-        }
-        if isSignedOut {
-            return "Sign in to join your gym community"
-        }
-        return "Community needs the live backend"
-    }
-
-    private var detail: String {
-        if isPreview {
-            return "Preview data stays on this device, so there are no real members to discover. Connect a Supabase project and use a real account to use Community."
-        }
-        if isSignedOut {
-            return "Your account is real, but you are not signed in. Sign in to choose a gym or area and see members who opted into discovery."
-        }
-        return "This build has no Supabase credentials, so Community cannot load real members. Follow native/SETUP.md, then rebuild."
     }
 
     private func bullet(_ text: String) -> some View {

@@ -4,14 +4,14 @@ enum FormaError: LocalizedError {
     case message(String)
     case notConfigured
     case notAuthenticated
-    case previewOnly
+    case backendRequired
 
     var errorDescription: String? {
         switch self {
         case .message(let text): text
-        case .notConfigured: "The backend is not configured. See the setup guide to connect Supabase."
-        case .notAuthenticated: "Your session has expired. Sign in again to continue."
-        case .previewOnly: "This action needs a connected Supabase project."
+        case .notConfigured: "The local database could not be opened."
+        case .notAuthenticated: "Choose a local profile before continuing."
+        case .backendRequired: "This action needs the Forma backend, which is not connected yet."
         }
     }
 }
@@ -38,17 +38,18 @@ protocol FormaRepository: Sendable {
 
     func listProgressRecords(userId: String) async throws -> [ProgressRecord]
     func addProgressRecord(_ record: ProgressRecord) async throws
+    func deleteProgressRecord(id: String) async throws
 }
 
 protocol AuthProviding: Sendable {
     func currentUser() async -> AppUser?
     func authChanges() -> AsyncStream<AppUser?>
     func signIn(email: String, password: String) async throws
-    func signUp(name: String, email: String, password: String) async throws -> Bool
+    func signUp(name: String, email: String, password: String) async throws
     func signOut() async throws
     func resetPassword(email: String) async throws
-    func updatePassword(_ password: String) async throws
-    func deleteAccount() async throws
+    func changePassword(current: String, new: String) async throws
+    func deleteAccount(password: String) async throws
 }
 
 /// Tables the app keeps in sync while it is open.

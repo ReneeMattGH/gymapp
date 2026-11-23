@@ -153,7 +153,7 @@ enum WorkoutRunStatus: String, Codable, Sendable {
 }
 
 enum RepositoryKind: String, Sendable {
-    case supabase, preview
+    case local, remote
 }
 
 // MARK: - Domain models
@@ -166,6 +166,8 @@ struct Profile: Codable, Equatable, Sendable {
     var environment: TrainingEnvironment
     var goals: [Goal]
     var limitations: String?
+    /// Relative file name inside the app's profile photo directory. Local only.
+    var photoPath: String? = nil
     var onboardingCompleted: Bool
     var createdAt: Date
 
@@ -177,6 +179,7 @@ struct Profile: Codable, Equatable, Sendable {
         environment: TrainingEnvironment,
         goals: [Goal],
         limitations: String?,
+        photoPath: String? = nil,
         onboardingCompleted: Bool,
         createdAt: Date
     ) {
@@ -187,6 +190,7 @@ struct Profile: Codable, Equatable, Sendable {
         self.environment = environment
         self.goals = goals
         self.limitations = limitations
+        self.photoPath = photoPath
         self.onboardingCompleted = onboardingCompleted
         self.createdAt = createdAt
     }
@@ -398,6 +402,8 @@ struct ProgressRecord: Codable, Identifiable, Equatable, Sendable {
 struct AppUser: Identifiable, Equatable, Sendable {
     var id: String
     var email: String?
+    /// Only meaningful for a remote account; always false for a local profile.
+    var emailVerified: Bool = false
 }
 
 // MARK: - Active workout

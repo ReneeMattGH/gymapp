@@ -5,9 +5,7 @@ import SwiftUI
 
 enum RuntimeMode: Equatable {
     case loading
-    case setupRequired
-    case preview
-    case supabase
+    case local
 }
 
 /// What the UI may honestly claim about where data came from.
@@ -45,11 +43,6 @@ struct OnboardingOutcome {
     let scheduledCount: Int
 }
 
-struct SignUpOutcome {
-    let needsEmailConfirmation: Bool
-    let message: String
-}
-
 @MainActor
 @Observable
 final class AppModel {
@@ -59,9 +52,7 @@ final class AppModel {
 
     // Services
     private(set) var repository: FormaRepository?
-    private(set) var auth: AuthProviding?
     private var repo: FormaRepository? { repository }
-    private var authTask: Task<Void, Never>?
     private var signalsTask: Task<Void, Never>?
     private var signalsUserId: String?
     private var refreshTask: Task<Void, Never>?
@@ -75,11 +66,24 @@ final class AppModel {
 
     // Session
     private(set) var user: AppUser?
+    /// Every profile stored in this device's database.
+    private(set) var localProfiles: [Profile] = []
     var isBootstrapping = true
-    var authBusy = false
-    var authError: String?
-    /// A widget deep link waiting for authentication, onboarding or navigation.
+    var profileError: String?
+    /// A widget deep link waiting for onboarding or navigation.
     var pendingDeepLink: AppDeepLink?
+
+    // Remote account (separate from the on-device training profile)
+    private(set) var accountService: AccountService?
+    private(set) var communityAPIService: CommunityAPIService?
+    private var accountTask: Task<Void, Never>?
+    /// The signed-in Forma account. Signing in never rewrites the local profile.
+    private(set) var remoteAccount: AppUser?
+    /// A reset token from `forma://auth/reset-password` awaiting a new password.
+    var pendingPasswordResetToken: String?
+    var accountNotice: String?
+    /// Set by an account deep link so the Account screen opens from any tab.
+    var isAccountPresented = false
 
     // Data
     var profile: Profile?
@@ -141,7 +145,6 @@ final class AppModel {
     private static let healthKey = "forma.healthOptIn"
     private static let favoritesKey = "forma.favoriteExercises"
     private static let recentKey = "forma.recentExercises"
-    private static let previewModeKey = "forma.previewModeEnabled"
 
     init() {
         let storedTheme = UserDefaults.standard.string(forKey: Self.themeKey)
@@ -180,13 +183,12 @@ final class AppModel {
         }
     }
 
-    var isPreview: Bool { mode == .preview }
-    var isSupabase: Bool { mode == .supabase }
+    var isRemote: Bool { repository?.kind == .remote }
 
-    /// Nil in preview mode and whenever no backend is configured, so Community
-    /// can say honestly that it needs a real account instead of inventing data.
+    /// Nil until this build has a backend URL. Community still requires a
+    /// signed-in account on top of this, which the Community screen checks.
     var communityService: (any CommunityServicing)? {
-        repository as? CommunityServicing
+        communityAPIService
     }
 
     var needsOnboarding: Bool {
@@ -237,80 +239,42 @@ final class AppModel {
 
     // MARK: - Bootstrap
 
+    /// Opens the on-device database and activates the remembered local profile.
+    /// A fresh install gets a stable pending identity so onboarding can write
+    /// the first profile; no profile row is invented before the user saves one.
     func bootstrap() async {
-        if config.isBackendConfigured, let url = config.supabaseURL {
-            let service = SupabaseService(url: url, anonKey: config.supabaseAnonKey)
-            repository = service
-            auth = service
-            mode = .supabase
-            exercises = ExerciseCatalog.all
-            startAuthListener(service)
-            user = await service.currentUser()
-            if user != nil {
+        isBootstrapping = true
+        loadError = nil
+        do {
+            let database = try AppDatabase.onDisk()
+            let repo = LocalRepository(database: database)
+            repository = repo
+            mode = .local
+            syncState = .local
+            configureAccountLayer()
+
+            let storedExercises = try await repo.getExercises()
+            exercises = storedExercises.isEmpty ? ExerciseCatalog.all : storedExercises
+
+            let profiles = try await repo.listProfiles()
+            localProfiles = profiles
+            let activeID = try? await repo.activeProfileID()
+            let active = profiles.first { $0.id == activeID } ?? profiles.first
+            if let active {
+                try? await repo.setActiveProfileID(active.id)
+                user = AppUser(id: active.id, email: nil)
+                isBootstrapping = false
                 await loadAll()
-            }
-            isBootstrapping = false
-        } else {
-            if config.allowsPreviewData, UserDefaults.standard.bool(forKey: Self.previewModeKey) {
-                await startPreview()
             } else {
-                mode = .setupRequired
+                user = AppUser(id: IDs.uuid(), email: nil)
+                isLoadingData = false
+                isBootstrapping = false
             }
+        } catch {
+            repository = nil
+            loadError = error.localizedDescription
             isBootstrapping = false
         }
-    }
-
-    private func startAuthListener(_ service: AuthProviding) {
-        authTask?.cancel()
-        authTask = Task { [weak self] in
-            for await next in service.authChanges() {
-                guard let self, !Task.isCancelled else { break }
-                await self.handleAuthChange(next)
-            }
-        }
-    }
-
-    private func handleAuthChange(_ next: AppUser?) async {
-        guard mode == .supabase else { return }
-        let previous = user?.id
-        if next == nil {
-            user = nil
-            clearUserData()
-            return
-        }
-        guard next?.id != previous else { return }
-        user = next
-        await loadAll()
-    }
-
-    func startPreview() async {
-        guard config.allowsPreviewData else { return }
-        authTask?.cancel()
-        signalsTask?.cancel()
-        signalsTask = nil
-        signalsUserId = nil
-        refreshTask?.cancel()
-        let preview = PreviewRepository()
-        repository = preview
-        auth = nil
-        mode = .preview
-        syncState = .local
-        user = AppUser(id: "preview-user", email: nil)
-        exercises = ExerciseCatalog.all
-        UserDefaults.standard.set(true, forKey: Self.previewModeKey)
-        await loadAll()
-    }
-
-    func exitPreview() async {
-        if let preview = repository as? PreviewRepository, let user {
-            await preview.reset(userId: user.id)
-        }
-        activeWorkout = nil
-        clearUserData()
-        user = nil
-        repository = nil
-        mode = .setupRequired
-        UserDefaults.standard.set(false, forKey: Self.previewModeKey)
     }
 
     // MARK: - Loading
@@ -320,7 +284,7 @@ final class AppModel {
         isLoadingData = true
         loadError = nil
         libraryNotice = nil
-        if isSupabase { syncState = .syncing }
+        if isRemote { syncState = .syncing }
         await loadPendingFormSessions(userId: user.id)
         do {
             async let profileTask = repo.getProfile(userId: user.id)
@@ -344,11 +308,11 @@ final class AppModel {
                 let fetched = try await repo.getExercises()
                 exercises = fetched.isEmpty ? ExerciseCatalog.all : fetched
                 if fetched.isEmpty {
-                    libraryNotice = "The server library has no exercises yet, so the bundled verified copy is being used."
+                    libraryNotice = "The local library has no exercises yet, so the bundled verified copy is being used."
                 }
             } catch {
                 exercises = ExerciseCatalog.all
-                libraryNotice = "The server exercise library could not be reached. Showing the bundled verified copy."
+                libraryNotice = "The local exercise library could not be read. Showing the bundled verified copy."
             }
 
             await mergePendingFormSessions(userId: user.id)
@@ -356,7 +320,7 @@ final class AppModel {
             activeWorkout = await LocalStore.shared.loadActiveWorkout(userId: user.id)
             if activeWorkout != nil { workoutSummary = nil }
             lastSyncedAt = Date()
-            if isSupabase {
+            if isRemote {
                 syncState = .cached
                 startSignalsIfNeeded(userId: user.id)
             } else {
@@ -366,7 +330,7 @@ final class AppModel {
             publishWidgetSnapshot()
         } catch {
             loadError = error.localizedDescription
-            if isSupabase { syncState = .offline }
+            if isRemote { syncState = .offline }
             await mergePendingFormSessions(userId: user.id)
             discardWidgetSnapshotIfAccountDiffers()
         }
@@ -376,7 +340,7 @@ final class AppModel {
     /// Pulls the synced rows without disturbing an in-progress workout.
     func refreshRemoteData() async {
         guard let repo, let user else { return }
-        if isSupabase, syncState == .offline { syncState = .syncing }
+        if isRemote, syncState == .offline { syncState = .syncing }
         do {
             async let profileTask = repo.getProfile(userId: user.id)
             async let preferencesTask = repo.getPreferences(userId: user.id)
@@ -395,10 +359,10 @@ final class AppModel {
             await mergePendingFormSessions(userId: user.id)
             await flushPendingFormSessions()
             lastSyncedAt = Date()
-            if isSupabase, syncState != .live { syncState = .cached }
+            if isRemote, syncState != .live { syncState = .cached }
             publishWidgetSnapshot()
         } catch {
-            if isSupabase { syncState = .offline }
+            if isRemote { syncState = .offline }
             await mergePendingFormSessions(userId: user.id)
             discardWidgetSnapshotIfAccountDiffers()
         }
@@ -406,7 +370,7 @@ final class AppModel {
 
     /// Lightweight check used when the app returns to the foreground.
     func refreshOnForeground() async {
-        guard isSupabase, user != nil else { return }
+        guard isRemote, user != nil else { return }
         if let lastSyncedAt, Date().timeIntervalSince(lastSyncedAt) < 30 { return }
         await refreshRemoteData()
     }
@@ -427,10 +391,10 @@ final class AppModel {
     private func handleSignal(_ signal: RepositorySignal) {
         switch signal {
         case .connected:
-            if isSupabase { syncState = .live }
+            if isRemote { syncState = .live }
         case .disconnected:
-            if isSupabase, syncState == .live { syncState = .cached }
-        case .changed(let change):
+            if isRemote, syncState == .live { syncState = .cached }
+        case .changed:
             scheduleRefresh()
         }
     }
@@ -445,7 +409,121 @@ final class AppModel {
     }
 
     func refresh() async {
-        await loadAll()
+        if repository == nil {
+            await bootstrap()
+        } else {
+            await loadAll()
+        }
+    }
+
+    // MARK: - Remote account
+
+    /// Nil when this build has no backend URL, so the Account screen can say so
+    /// instead of pretending to sign in.
+    var isAccountAvailable: Bool { accountService != nil }
+
+    private func configureAccountLayer() {
+        guard let baseURL = config.apiBaseURL else { return }
+        if accountService == nil {
+            let client = APIClient(baseURL: baseURL)
+            let service = AccountService(client: client)
+            accountService = service
+            communityAPIService = CommunityAPIService(client: client, baseURL: baseURL)
+            accountTask = Task { [weak self] in
+                for await account in service.authChanges() {
+                    guard let self else { return }
+                    self.remoteAccount = account
+                }
+            }
+        }
+        Task { [weak self] in await self?.refreshAccountState() }
+    }
+
+    private func refreshAccountState() async {
+        guard let service = accountService else { return }
+        let account = await service.currentAccount()
+        remoteAccount = account.map {
+            AppUser(id: $0.id, email: $0.email, emailVerified: $0.emailVerified)
+        }
+    }
+
+    func signInAccount(email: String, password: String) async throws {
+        guard let accountService else { throw FormaError.backendRequired }
+        accountNotice = nil
+        try await accountService.signIn(
+            email: email.trimmingCharacters(in: .whitespacesAndNewlines),
+            password: password
+        )
+    }
+
+    func createAccount(name: String, email: String, password: String) async throws -> AccountRegistration {
+        guard let accountService else { throw FormaError.backendRequired }
+        accountNotice = nil
+        let registration = try await accountService.register(
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            email: email.trimmingCharacters(in: .whitespacesAndNewlines),
+            password: password
+        )
+        accountNotice = registration.verificationEmailSent
+            ? "Account created. Check \(registration.user.email) for the confirmation link."
+            : "Account created. The backend did not send a confirmation email, so verification is still pending."
+        return registration
+    }
+
+    func signOutAccount() async {
+        accountNotice = nil
+        try? await accountService?.signOut()
+    }
+
+    func changeAccountPassword(current: String, new: String) async throws {
+        guard let accountService else { throw FormaError.backendRequired }
+        try await accountService.changePassword(current: current, new: new)
+        accountNotice = "Password updated. Other sessions were signed out."
+    }
+
+    func deleteRemoteAccount(password: String) async throws {
+        guard let accountService else { throw FormaError.backendRequired }
+        try await accountService.deleteAccount(password: password)
+        accountNotice = "Your Forma account was deleted."
+    }
+
+    func requestAccountPasswordReset(email: String) async throws {
+        guard let accountService else { throw FormaError.backendRequired }
+        try await accountService.resetPassword(email: email.trimmingCharacters(in: .whitespacesAndNewlines))
+        accountNotice = "If that address has an account, a reset link is on its way."
+    }
+
+    func resendVerificationEmail() async throws -> Bool {
+        guard let accountService else { throw FormaError.backendRequired }
+        return try await accountService.resendVerification()
+    }
+
+    func confirmAccountPasswordReset(token: String, password: String) async throws {
+        guard let accountService else { throw FormaError.backendRequired }
+        try await accountService.confirmPasswordReset(token: token, password: password)
+        pendingPasswordResetToken = nil
+        accountNotice = "Password updated. Sign in with the new password."
+    }
+
+    private func handleAuthDeepLink(_ link: AuthDeepLink) async {
+        accountNotice = nil
+        switch link {
+        case .verifyEmail(let token):
+            isAccountPresented = true
+            guard let accountService else {
+                accountNotice = FormaError.backendRequired.localizedDescription
+                return
+            }
+            do {
+                try await accountService.verifyEmail(token: token)
+                accountNotice = "Email confirmed. Your account is verified."
+            } catch {
+                accountNotice = "That confirmation link could not be used: \(error.localizedDescription)"
+            }
+        case .resetPassword(let token):
+            pendingPasswordResetToken = token
+            isAccountPresented = true
+        }
     }
 
     private func clearUserData() {
@@ -473,105 +551,13 @@ final class AppModel {
         WidgetPublisher.clear()
     }
 
-    // MARK: - Auth
-
-    func signIn(email: String, password: String) async -> Bool {
-        guard let auth else { return false }
-        authBusy = true
-        authError = nil
-        do {
-            try await auth.signIn(email: email, password: password)
-            user = await auth.currentUser()
-            guard user != nil else {
-                authError = "Signed in, but the session could not be read. Please try again."
-                authBusy = false
-                return false
-            }
-            await loadAll()
-            authBusy = false
-            return true
-        } catch {
-            authError = error.localizedDescription
-            authBusy = false
-            return false
-        }
-    }
-
-    func signUp(name: String, email: String, password: String) async -> SignUpOutcome? {
-        guard let auth else { return nil }
-        authBusy = true
-        authError = nil
-        do {
-            let needsConfirmation = try await auth.signUp(name: name, email: email, password: password)
-            authBusy = false
-            if needsConfirmation {
-                return SignUpOutcome(
-                    needsEmailConfirmation: true,
-                    message: "Check your inbox to confirm your email, then sign in."
-                )
-            }
-            user = await auth.currentUser()
-            if user != nil { await loadAll() }
-            return SignUpOutcome(needsEmailConfirmation: false, message: "Account created.")
-        } catch {
-            authError = error.localizedDescription
-            authBusy = false
-            return nil
-        }
-    }
-
-    func signOut() async {
-        if let auth {
-            try? await auth.signOut()
-        }
-        if isPreview, let preview = repository as? PreviewRepository, let user {
-            await preview.reset(userId: user.id)
-        }
-        user = nil
-        clearUserData()
-        if isPreview {
-            mode = .setupRequired
-            repository = nil
-            auth = nil
-            }
-    }
-
-    func resetPassword(email: String) async -> String? {
-        guard let auth else { return nil }
-        authBusy = true
-        authError = nil
-        do {
-            try await auth.resetPassword(email: email)
-            authBusy = false
-            return "If an account exists for that email, a reset link is on its way."
-        } catch {
-            authError = error.localizedDescription
-            authBusy = false
-            return nil
-        }
-    }
-
-    func updatePassword(_ password: String) async -> Bool {
-        guard let auth else { return false }
-        authBusy = true
-        authError = nil
-        do {
-            try await auth.updatePassword(password)
-            authBusy = false
-            return true
-        } catch {
-            authError = error.localizedDescription
-            authBusy = false
-            return false
-        }
-    }
-
-    func handleAuthURL(_ url: URL) {
-        guard let service = auth as? SupabaseService else { return }
-        service.handleAuthURL(url)
-    }
+    // MARK: - Local profiles
 
     func routeDeepLink(_ url: URL) {
+        if let authLink = AuthDeepLink.parse(url) {
+            Task { await handleAuthDeepLink(authLink) }
+            return
+        }
         guard let link = AppDeepLink.parse(url) else { return }
         pendingDeepLink = link
     }
@@ -581,27 +567,63 @@ final class AppModel {
         pendingDeepLink = nil
     }
 
-    func deleteAccount() async -> Bool {
-        guard let auth else { return false }
-        authBusy = true
-        authError = nil
+    /// Switches the active profile. Personal data never crosses between
+    /// profiles: the whole in-memory state is cleared and reloaded from SQLite.
+    func switchProfile(to id: String) async {
+        guard id != user?.id,
+              let repo = repository as? LocalRepository,
+              localProfiles.contains(where: { $0.id == id }) else { return }
+        profileError = nil
         do {
-            try await auth.deleteAccount()
-            if let preview = repository as? PreviewRepository, let user {
-                await preview.reset(userId: user.id)
+            try await repo.setActiveProfileID(id)
+        } catch {
+            profileError = error.localizedDescription
+            return
+        }
+        clearUserData()
+        user = AppUser(id: id, email: nil)
+        await loadAll()
+        Haptics.selection()
+    }
+
+    /// Starts a fresh profile. Onboarding writes the row once the user saves.
+    func beginNewProfile() async {
+        guard let repo = repository as? LocalRepository else { return }
+        profileError = nil
+        try? await repo.setActiveProfileID(nil)
+        clearUserData()
+        user = AppUser(id: IDs.uuid(), email: nil)
+        isLoadingData = false
+        Haptics.selection()
+    }
+
+    /// Deletes the active profile and everything that belongs to it. Requires
+    /// an explicit confirmation in the UI before it is called.
+    func deleteActiveProfile() async -> Bool {
+        guard let repo = repository as? LocalRepository, let user else { return false }
+        profileError = nil
+        do {
+            if let photoPath = profile?.photoPath {
+                ProfilePhotoStore.delete(photoPath)
             }
-            await LocalStore.shared.clearAllData()
-            user = nil
+            try await repo.deleteProfile(userId: user.id)
+            await LocalStore.shared.clearActiveWorkout(userId: user.id)
+            let remaining = try await repo.listProfiles()
+            localProfiles = remaining
             clearUserData()
-            authBusy = false
-            if isPreview {
-                mode = .setupRequired
-                repository = nil
-                    }
+            if let next = remaining.first {
+                try await repo.setActiveProfileID(next.id)
+                self.user = AppUser(id: next.id, email: nil)
+                await loadAll()
+            } else {
+                try await repo.setActiveProfileID(nil)
+                self.user = AppUser(id: IDs.uuid(), email: nil)
+                isLoadingData = false
+            }
+            WidgetPublisher.clear()
             return true
         } catch {
-            authError = error.localizedDescription
-            authBusy = false
+            profileError = error.localizedDescription
             return false
         }
     }
@@ -656,6 +678,11 @@ final class AppModel {
         try await repo.saveReminderSettings(settings)
         reminders = settings
 
+        if let local = repository as? LocalRepository {
+            try? await local.setActiveProfileID(user.id)
+            localProfiles = (try? await local.listProfiles()) ?? [nextProfile]
+        }
+
         let outcome = OnboardingOutcome(
             plan: generated,
             reminderMessage: reminderMessage,
@@ -674,6 +701,9 @@ final class AppModel {
         guard let repo else { throw FormaError.notConfigured }
         try await repo.saveProfile(next)
         profile = next
+        if let local = repository as? LocalRepository {
+            localProfiles = (try? await local.listProfiles()) ?? localProfiles
+        }
     }
 
     func savePreferences(_ next: Preferences) async throws {
@@ -729,7 +759,7 @@ final class AppModel {
         guard let repo, let user else { throw FormaError.notAuthenticated }
         var copy = next
         copy.userId = user.id
-        copy.createdAt = Date()
+        copy.createdAt = StoredTimestamp.now()
         let planId = IDs.uuid()
         copy.id = planId
         copy.days = copy.days.map { day in
@@ -824,7 +854,7 @@ final class AppModel {
             focus: day.focus,
             warmup: day.warmup,
             cooldown: day.cooldown,
-            startedAt: Date(),
+            startedAt: StoredTimestamp.now(),
             status: .active,
             pausedAt: nil,
             pausedSeconds: 0,
@@ -862,7 +892,7 @@ final class AppModel {
         }
         guard workout.sets(for: exercise).count < exercise.sets else { return }
 
-        let now = Date()
+        let now = StoredTimestamp.now()
         let completed = CompletedSet(
             id: IDs.uuid(),
             sessionId: workout.sessionId,
@@ -1033,7 +1063,7 @@ final class AppModel {
         guard let workout = activeWorkout, let repo = repository else { return }
         isSavingWorkout = true
         workoutError = nil
-        let ended = Date()
+        let ended = StoredTimestamp.now()
         let session = WorkoutSession(
             id: workout.sessionId,
             userId: workout.userId,
@@ -1082,7 +1112,7 @@ final class AppModel {
         sessionID: String
     ) async -> FormSessionSaveState {
         guard let repo, let user else {
-            return .failed("Sign in to save this session to your workout history.")
+            return .failed("Your local profile could not be loaded, so this session was not saved.")
         }
         let session = FormAnalysisSavedSession.workoutSession(
             for: summary,
@@ -1163,7 +1193,7 @@ final class AppModel {
         let record = ProgressRecord(
             id: IDs.uuid(),
             userId: user.id,
-            recordedAt: Date(),
+            recordedAt: StoredTimestamp.now(),
             bodyweightKg: weightKg,
             notes: trimmed.isEmpty ? nil : trimmed
         )

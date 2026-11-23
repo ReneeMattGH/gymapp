@@ -2,7 +2,7 @@ import XCTest
 @testable import Forma
 
 final class CommunityModelTests: XCTestCase {
-    /// Mirrors the Supabase SDK decoder: ISO-8601 with or without fractional seconds.
+    /// Mirrors the backend decoder: ISO-8601 with or without fractional seconds.
     private func decoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         let withFraction = ISO8601DateFormatter()
@@ -206,6 +206,6 @@ final class CommunityModelTests: XCTestCase {
     func testErrorDescriptions() {
         let error = CommunityError(message: "Messaging is not available for this conversation.")
         XCTAssertEqual(error.errorDescription, "Messaging is not available for this conversation.")
-        XCTAssertTrue(CommunityError.notConfigured.message.contains("Supabase"))
+        XCTAssertTrue(CommunityError.notConfigured.message.contains("backend"))
     }
 }
