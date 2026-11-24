@@ -54,17 +54,11 @@ struct CommunityRootView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            Group {
-                if isAvailable {
-                    content
-                } else {
-                    CommunityUnavailableView(backendAvailable: model.communityService != nil)
+            content
+                .background(FormaBackground())
+                .navigationDestination(for: CommunityRoute.self) { route in
+                    destination(for: route)
                 }
-            }
-            .background(FormaBackground())
-            .navigationDestination(for: CommunityRoute.self) { route in
-                destination(for: route)
-            }
         }
         .task(id: "\(model.remoteAccount?.id ?? "")|\(model.user?.id ?? "")") {
             await store.configure(
@@ -105,6 +99,11 @@ struct CommunityRootView: View {
             path = NavigationPath()
             section = .messages
             model.consumeDeepLink(.messages)
+        case .notifications:
+            path = NavigationPath()
+            section = .home
+            path.append(CommunityRoute.notifications)
+            model.consumeDeepLink(.notifications)
         default:
             break
         }
@@ -151,7 +150,7 @@ struct CommunityRootView: View {
 
                 switch store.phase {
                 case .unavailable:
-                    CommunityUnavailableView()
+                    CommunityUnavailableView(backendAvailable: model.communityService != nil)
                 case .loading:
                     LoadingCard(label: "Loading your community")
                 case .failed(let message):
@@ -193,10 +192,17 @@ struct CommunityRootView: View {
             )
             Spacer(minLength: Spacing.sm)
             HStack(spacing: Spacing.sm) {
-                NavigationLink(value: CommunityRoute.notifications) {
+                NavigationLink {
+                    communityDestination(.notifications, store: store)
+                } label: {
                     badgeIcon(systemImage: "bell", count: store.unreadNotifications)
                 }
-                NavigationLink(value: CommunityRoute.settings) {
+                .accessibilityLabel(store.unreadNotifications > 0
+                    ? "Notifications, \(store.unreadNotifications) unread"
+                    : "Notifications")
+                NavigationLink {
+                    CommunitySettingsView(store: store)
+                } label: {
                     Image(systemName: "gearshape")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(palette.text)
@@ -204,6 +210,7 @@ struct CommunityRootView: View {
                         .background(palette.surface, in: Circle())
                         .overlay { Circle().strokeBorder(palette.border, lineWidth: 1) }
                 }
+                .accessibilityLabel("Community settings")
             }
             .padding(.top, 4)
         }
@@ -232,28 +239,37 @@ struct CommunityRootView: View {
 
     @ViewBuilder
     private func destination(for route: CommunityRoute) -> some View {
-        switch route {
-        case .member(let userID):
-            CommunityMemberProfileView(store: store, userID: userID)
-        case .notifications:
-            CommunityNotificationsView(store: store)
-        case .settings:
-            CommunitySettingsView(store: store)
-        case .profileEditor:
-            CommunityProfileEditorView(store: store)
-        case .gymSelection:
-            CommunityGymSelectionView(store: store)
-        case .connectionRequests:
-            CommunityConnectionRequestsView(store: store)
-        case .blockedMembers:
-            CommunityBlockedMembersView(store: store)
-        case .admin:
-            CommunityAdminView(store: store)
-        case .feed:
-            CommunityFeedScreen(store: store, showReportFor: $showReportFor)
-        case .conversation(let conversation):
-            CommunityMessageThreadView(store: store, conversation: conversation)
-        }
+        communityDestination(route, store: store, showReportFor: $showReportFor)
+    }
+}
+
+@ViewBuilder
+func communityDestination(
+    _ route: CommunityRoute,
+    store: CommunityStore,
+    showReportFor: Binding<CommunityReportPayload?> = .constant(nil)
+) -> some View {
+    switch route {
+    case .member(let userID):
+        CommunityMemberProfileView(store: store, userID: userID)
+    case .notifications:
+        CommunityNotificationsView(store: store)
+    case .settings:
+        CommunitySettingsView(store: store)
+    case .profileEditor:
+        CommunityProfileEditorView(store: store)
+    case .gymSelection:
+        CommunityGymSelectionView(store: store)
+    case .connectionRequests:
+        CommunityConnectionRequestsView(store: store)
+    case .blockedMembers:
+        CommunityBlockedMembersView(store: store)
+    case .admin:
+        CommunityAdminView(store: store)
+    case .feed:
+        CommunityFeedScreen(store: store, showReportFor: showReportFor)
+    case .conversation(let conversation):
+        CommunityMessageThreadView(store: store, conversation: conversation)
     }
 }
 
@@ -339,7 +355,9 @@ struct CommunityHomeSection: View {
                         .font(FormaFont.bodyFont(13))
                         .foregroundStyle(palette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    NavigationLink(value: CommunityRoute.profileEditor) {
+                    NavigationLink {
+                        communityDestination(.profileEditor, store: store)
+                    } label: {
                         Text("Set up profile")
                             .font(FormaFont.bodyFont(14, weight: .semibold))
                             .foregroundStyle(palette.accentInk)
@@ -392,7 +410,9 @@ struct CommunityHomeSection: View {
                             FormaDivider()
                         }
                     }
-                    NavigationLink(value: CommunityRoute.connectionRequests) {
+                    NavigationLink {
+                        communityDestination(.connectionRequests, store: store)
+                    } label: {
                         Text("Review all requests")
                             .font(FormaFont.bodyFont(13, weight: .medium))
                             .foregroundStyle(palette.accentText)
@@ -433,7 +453,9 @@ struct CommunityHomeSection: View {
                         }
                     }
                 }
-                NavigationLink(value: CommunityRoute.feed) {
+                NavigationLink {
+                    communityDestination(.feed, store: store, showReportFor: $showReportFor)
+                } label: {
                     Text("Open community feed")
                         .font(FormaFont.bodyFont(13, weight: .medium))
                         .foregroundStyle(palette.accentText)
@@ -441,7 +463,9 @@ struct CommunityHomeSection: View {
             }
 
             if store.isAdmin {
-                NavigationLink(value: CommunityRoute.admin) {
+                NavigationLink {
+                    communityDestination(.admin, store: store)
+                } label: {
                     HStack(spacing: Spacing.md) {
                         Image(systemName: "shield.lefthalf.filled")
                             .foregroundStyle(palette.accentText)
@@ -502,7 +526,9 @@ struct CommunityHomeSection: View {
                     }
                 }
                 Spacer()
-                NavigationLink(value: CommunityRoute.gymSelection) {
+                NavigationLink {
+                    CommunityGymSelectionView(store: store)
+                } label: {
                     Text(store.membership == nil ? "Choose" : "Change")
                         .font(FormaFont.bodyFont(12, weight: .semibold))
                         .foregroundStyle(palette.accentText)
@@ -534,7 +560,9 @@ struct CommunityHomeSection: View {
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 ForEach(members) { member in
-                    NavigationLink(value: CommunityRoute.member(member.userID)) {
+                    NavigationLink {
+                        communityDestination(.member(member.userID), store: store)
+                    } label: {
                         CommunityMemberRow(member: member, trailing: AnyView(
                             store.isBusy("connect-\(member.userID)")
                                 ? AnyView(ProgressView().controlSize(.small))
@@ -565,7 +593,7 @@ struct CommunityHomeSection: View {
                     .font(FormaFont.bodyFont(12, weight: .semibold))
                     .foregroundStyle(palette.accentInk)
                     .padding(.horizontal, Spacing.md)
-                    .padding(.vertical, 6)
+                    .frame(minHeight: 40)
                     .background(palette.accent, in: Capsule())
             }
             .buttonStyle(PressableScaleStyle())
@@ -586,7 +614,7 @@ struct CommunityHomeSection: View {
             }
             .foregroundStyle(accent ? palette.accentInk : palette.text)
             .padding(.horizontal, Spacing.md)
-            .padding(.vertical, 6)
+            .frame(minHeight: 40)
             .background(accent ? palette.accent : palette.surfaceRaised, in: Capsule())
             .overlay { Capsule().strokeBorder(accent ? Color.clear : palette.border, lineWidth: 1) }
         }

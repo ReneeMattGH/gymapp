@@ -232,7 +232,9 @@ struct CommunitySettingsView: View {
                             .font(FormaFont.bodyFont(13))
                             .foregroundStyle(palette.textSecondary)
                     }
-                    NavigationLink(value: CommunityRoute.profileEditor) {
+                    NavigationLink {
+                        communityDestination(.profileEditor, store: store)
+                    } label: {
                         Text(store.profile == nil ? "Create profile" : "Edit profile")
                             .font(FormaFont.bodyFont(13, weight: .semibold))
                             .foregroundStyle(palette.accentText)
@@ -242,9 +244,15 @@ struct CommunitySettingsView: View {
                 FormaCard {
                     SectionHeader(title: "Gym and area")
                     if let membership = store.membership {
-                        KeyValueRow(label: "Gym", value: membership.gymName)
-                        FormaDivider()
-                        KeyValueRow(label: "Area", value: [membership.area, membership.city].compactMap { $0 }.joined(separator: ", "))
+                        KeyValueRow(label: membership.isPrimary ? "Primary gym" : "Gym", value: membership.gymName)
+                        if !membership.locationText.isEmpty {
+                            FormaDivider()
+                            KeyValueRow(label: "Location", value: membership.locationText)
+                        }
+                        if store.memberships.count > 1 {
+                            FormaDivider()
+                            KeyValueRow(label: "Other gyms", value: "\(store.memberships.count - 1)")
+                        }
                     } else if let preferences = draft, let area = preferences.area {
                         KeyValueRow(label: "Area", value: "\(area), \(preferences.city ?? "")")
                         FormaDivider()
@@ -254,7 +262,9 @@ struct CommunitySettingsView: View {
                             .font(FormaFont.bodyFont(13))
                             .foregroundStyle(palette.textSecondary)
                     }
-                    NavigationLink(value: CommunityRoute.gymSelection) {
+                    NavigationLink {
+                        communityDestination(.gymSelection, store: store)
+                    } label: {
                         Text("Change gym or area")
                             .font(FormaFont.bodyFont(13, weight: .semibold))
                             .foregroundStyle(palette.accentText)
@@ -281,14 +291,32 @@ struct CommunitySettingsView: View {
                         FormaDivider()
                         settingToggle(
                             title: "Show my area",
-                            subtitle: "Show your coarse area and city. Never an address or map point.",
+                            subtitle: "Show your coarse neighborhood. Never an address or map point.",
                             isOn: binding.showArea
+                        )
+                        FormaDivider()
+                        settingToggle(
+                            title: "Show my city",
+                            subtitle: "Let members see the city on your profile and use it for matching.",
+                            isOn: binding.showCity
+                        )
+                        FormaDivider()
+                        settingToggle(
+                            title: "Show my country",
+                            subtitle: "Let members in other countries see which country you train in.",
+                            isOn: binding.showCountry
                         )
                         FormaDivider()
                         settingToggle(
                             title: "Allow nearby discovery",
                             subtitle: "Let members in your area group find you.",
                             isOn: binding.nearbyDiscovery
+                        )
+                        FormaDivider()
+                        settingToggle(
+                            title: "Discoverable worldwide",
+                            subtitle: "Let members anywhere find you in Global discovery. Only your chosen gym, city and country are shown.",
+                            isOn: binding.globalDiscovery
                         )
                         FormaDivider()
                         settingToggle(
@@ -354,15 +382,21 @@ struct CommunitySettingsView: View {
 
                 FormaCard {
                     SectionHeader(title: "Safety")
-                    NavigationLink(value: CommunityRoute.connectionRequests) {
+                    NavigationLink {
+                        communityDestination(.connectionRequests, store: store)
+                    } label: {
                         settingsRow(label: "Connection requests", systemImage: "person.badge.plus", badge: store.incomingRequestCount)
                     }
                     FormaDivider()
-                    NavigationLink(value: CommunityRoute.blockedMembers) {
+                    NavigationLink {
+                        communityDestination(.blockedMembers, store: store)
+                    } label: {
                         settingsRow(label: "Blocked members", systemImage: "hand.raised")
                     }
                     FormaDivider()
-                    NavigationLink(value: CommunityRoute.notifications) {
+                    NavigationLink {
+                        communityDestination(.notifications, store: store)
+                    } label: {
                         settingsRow(label: "Notifications", systemImage: "bell", badge: store.unreadNotifications)
                     }
                     Text("Reports are reviewed by moderators. The person you report is not told who reported them.")
@@ -394,11 +428,16 @@ struct CommunitySettingsView: View {
             discoverable: false,
             showGym: true,
             showArea: true,
+            showCity: true,
+            showCountry: true,
             nearbyDiscovery: false,
+            globalDiscovery: true,
             allowConnectionRequests: true,
             allowMessages: true,
             city: store.membership?.city,
             area: store.membership?.area,
+            country: store.membership?.country,
+            countryCode: store.membership?.countryCode,
             notifyConnections: true,
             notifyMessages: true,
             notifyComments: true,
@@ -426,7 +465,7 @@ struct CommunitySettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .tint(palette.accent)
+        .tint(palette.accentText)
     }
 
     private func settingsRow(label: String, systemImage: String, badge: Int = 0) -> some View {
@@ -463,259 +502,5 @@ struct CommunitySettingsView: View {
         } else {
             saveError = store.actionError ?? "Settings could not be saved."
         }
-    }
-}
-
-// MARK: - Gym and area selection
-
-struct CommunityGymSelectionView: View {
-    var store: CommunityStore
-
-    @Environment(\.formaPalette) private var palette
-    @State private var query = ""
-    @State private var requestName = ""
-    @State private var requestCity = ""
-    @State private var requestArea = ""
-    @State private var requestAddress = ""
-    @State private var requestResult: String?
-    @State private var actionError: String?
-    @State private var confirmLeave = false
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.xl) {
-                Text("Discovery matches members by the gym or area you pick here. It never reads your device location, so nothing here confirms where you are right now.")
-                    .font(FormaFont.bodyFont(13))
-                    .foregroundStyle(palette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if let membership = store.membership {
-                    FormaCard(style: .raised) {
-                        SectionHeader(title: "Your gym")
-                        Text(membership.gymName)
-                            .font(FormaFont.displayFont(19, weight: .semibold))
-                            .foregroundStyle(palette.text)
-                        Text([membership.area, membership.city].compactMap { $0 }.joined(separator: ", "))
-                            .font(FormaFont.bodyFont(12))
-                            .foregroundStyle(palette.textSecondary)
-                        if membership.verificationStatus != "verified" {
-                            TagLabel(text: "Awaiting review", color: palette.warning)
-                        }
-                        SecondaryButton(title: "Leave this gym community", destructive: true) {
-                            confirmLeave = true
-                        }
-                    }
-                }
-
-                FormaCard {
-                    SectionHeader(title: "Search gyms")
-                    FormaTextField(placeholder: "Gym name, city or area", text: $query, capitalization: .words)
-                        .onChange(of: query) { _, value in
-                            Task {
-                                try? await Task.sleep(for: .milliseconds(350))
-                                guard !Task.isCancelled else { return }
-                                await store.searchGyms(query: value)
-                            }
-                        }
-
-                    if let error = store.gymSearchError {
-                        ErrorBanner(message: error) {
-                            Task { await store.searchGyms(query: query) }
-                        }
-                    }
-
-                    if store.gymSearchLoading {
-                        LoadingCard(label: "Searching gyms")
-                    } else if store.gymResults.isEmpty {
-                        Text("No gyms match yet. Request one below; it appears in search for you while it waits for review.")
-                            .font(FormaFont.bodyFont(13))
-                            .foregroundStyle(palette.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else {
-                        ForEach(store.gymResults) { gym in
-                            gymRow(gym)
-                            if gym.id != store.gymResults.last?.id {
-                                FormaDivider()
-                            }
-                        }
-                    }
-                }
-
-                FormaCard {
-                    SectionHeader(title: "Choose an area instead")
-                    Text("Areas come from the community directory. Your area is never mapped to an exact location.")
-                        .font(FormaFont.bodyFont(11))
-                        .foregroundStyle(palette.textTertiary)
-                    if store.areas.isEmpty {
-                        Text("No areas are listed yet. Pick a gym or request one.")
-                            .font(FormaFont.bodyFont(13))
-                            .foregroundStyle(palette.textSecondary)
-                    } else {
-                        ForEach(cityGroups, id: \.city) { group in
-                            VStack(alignment: .leading, spacing: Spacing.sm) {
-                                Text(group.city.uppercased())
-                                    .font(FormaFont.bodyFont(10, weight: .semibold))
-                                    .tracking(1)
-                                    .foregroundStyle(palette.textTertiary)
-                                FlowLayout(spacing: Spacing.sm) {
-                                    ForEach(group.areas) { area in
-                                        FormaChip(
-                                            label: area.area,
-                                            selected: store.preferences?.area == area.area && store.preferences?.city == area.city
-                                        ) {
-                                            Task { await chooseArea(area) }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                FormaCard {
-                    SectionHeader(title: "Request a gym")
-                    FormaTextField(label: "Gym name", placeholder: "e.g. Fitness District", text: $requestName, capitalization: .words)
-                    FormaTextField(label: "City", placeholder: "e.g. Chennai", text: $requestCity, capitalization: .words)
-                    FormaTextField(label: "Area (optional)", placeholder: "e.g. Adyar", text: $requestArea, capitalization: .words)
-                    FormaTextField(label: "Address (optional)", placeholder: "Street address", text: $requestAddress, capitalization: .words)
-
-                    if let requestResult {
-                        NoticeBanner(message: requestResult, systemImage: "checkmark.circle", accent: true)
-                    }
-                    if let actionError {
-                        ErrorBanner(message: actionError)
-                    }
-
-                    PrimaryButton(
-                        title: store.isBusy("request-gym") ? "Submitting" : "Submit gym request",
-                        isLoading: store.isBusy("request-gym"),
-                        isDisabled: requestName.trimmingCharacters(in: .whitespaces).count < 2 || requestCity.trimmingCharacters(in: .whitespaces).count < 2
-                    ) {
-                        Task { await submitRequest() }
-                    }
-                }
-            }
-            .padding(Spacing.xl)
-        }
-        .background(FormaBackground())
-        .navigationTitle("Gym and area")
-        .navigationBarTitleDisplayMode(.inline)
-        .task {
-            await store.searchGyms(query: query)
-            if store.areas.isEmpty {
-                await store.loadBootstrap()
-            }
-        }
-        .confirmationDialog("Leave this gym community?", isPresented: $confirmLeave, titleVisibility: .visible) {
-            Button("Leave gym", role: .destructive) {
-                Task {
-                    let ok = await store.leaveGym()
-                    if !ok { actionError = store.actionError }
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("You stay in your area group unless you change it. Your connections and messages are not removed.")
-        }
-    }
-
-    private struct CityGroup {
-        var city: String
-        var areas: [CommunityArea]
-    }
-
-    private var cityGroups: [CityGroup] {
-        Dictionary(grouping: store.areas, by: \.city)
-            .map { CityGroup(city: $0.key, areas: $0.value.sorted { $0.area < $1.area }) }
-            .sorted { $0.city < $1.city }
-    }
-
-    private func gymRow(_ gym: GymSummary) -> some View {
-        HStack(alignment: .top, spacing: Spacing.md) {
-            Image(systemName: "building.2")
-                .font(.system(size: 15))
-                .foregroundStyle(palette.accentText)
-                .frame(width: 34, height: 34)
-                .background(palette.accentSoft, in: Circle())
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(gym.name)
-                    .font(FormaFont.bodyFont(14, weight: .semibold))
-                    .foregroundStyle(palette.text)
-                Text([gym.area, gym.city].compactMap { $0 }.joined(separator: ", "))
-                    .font(FormaFont.bodyFont(12))
-                    .foregroundStyle(palette.textSecondary)
-                HStack(spacing: Spacing.sm) {
-                    TagLabel(
-                        text: gym.verificationStatus == "verified" ? "Verified" : "Awaiting review",
-                        color: gym.verificationStatus == "verified" ? palette.success : palette.warning
-                    )
-                    Text("\(gym.memberCount) members")
-                        .font(FormaFont.bodyFont(10))
-                        .foregroundStyle(palette.textTertiary)
-                }
-            }
-            Spacer(minLength: Spacing.sm)
-
-            if store.membership?.gymID == gym.id {
-                TagLabel(text: "Current", color: palette.textSecondary)
-            } else {
-                Button {
-                    Task {
-                        actionError = nil
-                        let ok = await store.joinGym(gym)
-                        if !ok { actionError = store.actionError }
-                    }
-                } label: {
-                    Group {
-                        if store.isBusy("join-gym") {
-                            ProgressView().controlSize(.mini)
-                        } else {
-                            Text("Join")
-                                .font(FormaFont.bodyFont(12, weight: .semibold))
-                        }
-                    }
-                    .foregroundStyle(palette.accentInk)
-                    .padding(.horizontal, Spacing.md)
-                    .padding(.vertical, 6)
-                    .background(palette.accent, in: Capsule())
-                }
-                .buttonStyle(PressableScaleStyle())
-                .disabled(store.isBusy("join-gym"))
-            }
-        }
-        .padding(.vertical, Spacing.sm)
-    }
-
-    private func chooseArea(_ area: CommunityArea) async {
-        actionError = nil
-        let ok = await store.setArea(city: area.city, area: area.area)
-        if !ok { actionError = store.actionError }
-    }
-
-    private func submitRequest() async {
-        requestResult = nil
-        actionError = nil
-        let result = await store.requestGym(
-            name: requestName.trimmingCharacters(in: .whitespacesAndNewlines),
-            city: requestCity.trimmingCharacters(in: .whitespacesAndNewlines),
-            area: requestArea.isEmpty ? nil : requestArea.trimmingCharacters(in: .whitespacesAndNewlines),
-            address: requestAddress.isEmpty ? nil : requestAddress.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-        guard let result else {
-            actionError = store.actionError ?? "The gym request could not be submitted."
-            return
-        }
-        if result.created {
-            requestResult = "Submitted. This gym is visible in your search while it waits for review."
-        } else if result.status == "verified" {
-            requestResult = "That gym already exists and is verified. Search for it to join."
-        } else {
-            requestResult = "That gym already exists and is waiting for review."
-        }
-        requestName = ""
-        requestCity = ""
-        requestArea = ""
-        requestAddress = ""
     }
 }

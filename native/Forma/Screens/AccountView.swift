@@ -28,6 +28,8 @@ struct AccountView: View {
     @State private var confirmResetPassword = ""
     @State private var deletePassword = ""
     @State private var confirmingDelete = false
+    @State private var confirmingSignOut = false
+    @State private var didAttemptSubmit = false
     @State private var resendNotice: String?
 
     var body: some View {
@@ -43,6 +45,9 @@ struct AccountView: View {
                 }
                 if let error {
                     ErrorBanner(message: error)
+                }
+                if let hint = AppConfig.current.configurationHint {
+                    NoticeBanner(message: hint, systemImage: "wifi.exclamationmark")
                 }
                 if !model.isAccountAvailable {
                     unavailableCard
@@ -69,6 +74,22 @@ struct AccountView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .confirmationDialog(
+            "Sign out of this account?",
+            isPresented: $confirmingSignOut,
+            titleVisibility: .visible
+        ) {
+            Button("Sign out", role: .destructive) {
+                Task {
+                    busy = true
+                    await model.signOutAccount()
+                    busy = false
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your training data stays on this device.")
+        }
     }
 
     // MARK: - Backend missing
@@ -98,6 +119,7 @@ struct AccountView: View {
                         guard mode != item else { return }
                         mode = item
                         error = nil
+                        didAttemptSubmit = false
                     }
                 }
             }
@@ -109,7 +131,9 @@ struct AccountView: View {
                         placeholder: "How members see you",
                         text: $name,
                         capitalization: .words,
-                        contentType: .name
+                        contentType: .name,
+                        isInvalid: didAttemptSubmit && nameProblem != nil,
+                        message: didAttemptSubmit ? nameProblem : nil
                     )
                 }
                 FormaTextField(
@@ -118,7 +142,9 @@ struct AccountView: View {
                     text: $email,
                     keyboard: .emailAddress,
                     capitalization: .never,
-                    contentType: .username
+                    contentType: .username,
+                    isInvalid: didAttemptSubmit && emailProblem != nil,
+                    message: didAttemptSubmit ? emailProblem : nil
                 )
                 FormaTextField(
                     label: "Password",
@@ -126,13 +152,15 @@ struct AccountView: View {
                     text: $password,
                     secure: true,
                     capitalization: .never,
-                    contentType: mode == .signIn ? .password : nil
+                    contentType: mode == .signIn ? .password : .newPassword,
+                    isInvalid: didAttemptSubmit && passwordProblem != nil,
+                    message: didAttemptSubmit ? passwordProblem : nil
                 )
                 PrimaryButton(
                     title: mode.title,
                     systemImage: mode == .signIn ? "arrow.right.circle" : "person.badge.plus",
                     isLoading: busy,
-                    isDisabled: !canSubmit
+                    isDisabled: busy
                 ) {
                     submit()
                 }
@@ -207,7 +235,11 @@ struct AccountView: View {
                 text: $confirmResetPassword,
                 secure: true,
                 capitalization: .never,
-                contentType: .newPassword
+                contentType: .newPassword,
+                isInvalid: !confirmResetPassword.isEmpty && confirmResetPassword != resetPassword,
+                message: confirmResetPassword.isEmpty || confirmResetPassword == resetPassword
+                    ? nil
+                    : "Passwords do not match."
             )
             PrimaryButton(
                 title: "Set new password",
@@ -291,7 +323,11 @@ struct AccountView: View {
                 text: $confirmPassword,
                 secure: true,
                 capitalization: .never,
-                contentType: .newPassword
+                contentType: .newPassword,
+                isInvalid: !confirmPassword.isEmpty && confirmPassword != newPassword,
+                message: confirmPassword.isEmpty || confirmPassword == newPassword
+                    ? nil
+                    : "Passwords do not match."
             )
             PrimaryButton(
                 title: "Update password",
@@ -310,12 +346,12 @@ struct AccountView: View {
     }
 
     private var signOutCard: some View {
-        SecondaryButton(title: "Sign out", systemImage: "rectangle.portrait.and.arrow.right") {
-            Task {
-                busy = true
-                await model.signOutAccount()
-                busy = false
-            }
+        SecondaryButton(
+            title: "Sign out",
+            systemImage: "rectangle.portrait.and.arrow.right",
+            isDisabled: busy
+        ) {
+            confirmingSignOut = true
         }
     }
 
@@ -369,19 +405,35 @@ struct AccountView: View {
         return value.contains("@") && value.contains(".") && !value.hasSuffix(".")
     }
 
-    private var canSubmit: Bool {
-        guard isEmailValid else { return false }
-        if mode == .createAccount {
-            return password.count >= 10 && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var nameProblem: String? {
+        guard mode == .createAccount else { return nil }
+        return trimmedName.isEmpty ? "Enter the name members will see." : nil
+    }
+
+    private var emailProblem: String? {
+        if email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Enter your email address."
         }
-        return !password.isEmpty
+        return isEmailValid ? nil : "Enter a valid email address."
+    }
+
+    private var passwordProblem: String? {
+        if password.isEmpty { return "Enter your password." }
+        if mode == .createAccount && password.count < 10 {
+            return "Use at least 10 characters."
+        }
+        return nil
     }
 
     private func submit() {
-        guard canSubmit else {
-            error = mode == .createAccount
-                ? "Check the name, email and that the password has at least 10 characters."
-                : "Enter a valid email and your password."
+        didAttemptSubmit = true
+        let problems = [nameProblem, emailProblem, passwordProblem].compactMap { $0 }
+        guard problems.isEmpty else {
+            error = "Check the highlighted fields and try again."
             return
         }
         run {
@@ -391,6 +443,7 @@ struct AccountView: View {
                 try await model.signInAccount(email: email, password: password)
             }
             password = ""
+            didAttemptSubmit = false
         }
     }
 
@@ -403,6 +456,10 @@ struct AccountView: View {
             do {
                 try await operation()
                 Haptics.success()
+            } catch let apiError as APIError where
+                apiError.isOffline && AppConfig.current.backendUnreachableOnThisDevice {
+                // The configuration banner above already explains this exact
+                // failure; a second red banner would only repeat it.
             } catch {
                 self.error = error.localizedDescription
             }

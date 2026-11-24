@@ -207,6 +207,41 @@ enum TrainingStats {
         }
     }
 
+    struct DayCount: Identifiable {
+        let start: Date
+        let value: Int
+        var id: Date { start }
+        var label: String { start.formatted(.dateTime.weekday(.narrow)) }
+    }
+
+    static func lastDaysCounts(_ sessions: [WorkoutSession], days: Int, reference: Date = Date(), calendar: Calendar = .current) -> [DayCount] {
+        let today = calendar.startOfDay(for: reference)
+        return (0..<days).map { index in
+            let start = calendar.date(byAdding: .day, value: -(days - 1 - index), to: today) ?? today
+            let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start
+            let value = completedSessions(sessions).filter { $0.startedAt >= start && $0.startedAt < end }.count
+            return DayCount(start: start, value: value)
+        }
+    }
+
+    struct MonthCount: Identifiable {
+        let start: Date
+        let value: Int
+        var id: Date { start }
+        var label: String { start.formatted(.dateTime.month(.abbreviated)) }
+    }
+
+    static func lastMonthsCounts(_ sessions: [WorkoutSession], months: Int, reference: Date = Date(), calendar: Calendar = .current) -> [MonthCount] {
+        let components = calendar.dateComponents([.year, .month], from: reference)
+        let currentStart = calendar.date(from: components) ?? reference
+        return (0..<months).map { index in
+            let start = calendar.date(byAdding: .month, value: -(months - 1 - index), to: currentStart) ?? currentStart
+            let end = calendar.date(byAdding: .month, value: 1, to: start) ?? start
+            let value = completedSessions(sessions).filter { $0.startedAt >= start && $0.startedAt < end }.count
+            return MonthCount(start: start, value: value)
+        }
+    }
+
     /// Consecutive calendar days with a completed session, counting back from today or yesterday.
     static func currentStreak(_ sessions: [WorkoutSession], reference: Date = Date(), calendar: Calendar = .current) -> Int {
         let days = activeDayKeys(sessions, calendar: calendar)

@@ -24,7 +24,9 @@ struct CommunityMessagesSection: View {
                 FormaCard {
                     SectionHeader(title: "Conversations")
                     ForEach(store.conversations) { conversation in
-                        NavigationLink(value: CommunityRoute.conversation(conversation)) {
+                        NavigationLink {
+                            communityDestination(.conversation(conversation), store: store)
+                        } label: {
                             row(conversation)
                         }
                         .buttonStyle(.plain)
@@ -94,6 +96,7 @@ struct CommunityMessageThreadView: View {
 
     @Environment(\.formaPalette) private var palette
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var messages: [CommunityMessage] = []
     @State private var loading = true
     @State private var loadingOlder = false
@@ -225,7 +228,7 @@ struct CommunityMessageThreadView: View {
                         }
                     }
                     .foregroundStyle(palette.accentInk)
-                    .frame(width: 42, height: 42)
+                    .frame(width: 44, height: 44)
                     .background(palette.accent, in: Circle())
                 }
                 .buttonStyle(PressableScaleStyle())
@@ -293,7 +296,7 @@ struct CommunityMessageThreadView: View {
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
         guard let last = messages.last else { return }
-        withAnimation(.snappy(duration: 0.2)) {
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) {
             proxy.scrollTo(last.id, anchor: .bottom)
         }
     }

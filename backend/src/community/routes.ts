@@ -29,7 +29,10 @@ const preferencesSchema = z.object({
   discoverable: z.boolean(),
   showGym: z.boolean(),
   showArea: z.boolean(),
+  showCity: z.boolean().default(true),
+  showCountry: z.boolean().default(true),
   nearbyDiscovery: z.boolean(),
+  globalDiscovery: z.boolean().default(true),
   allowConnectionRequests: z.boolean(),
   allowMessages: z.boolean(),
   notifyConnections: z.boolean(),
@@ -72,15 +75,41 @@ export function createCommunityRouter(options: {
   router.get(
     '/discover',
     asyncHandler(async (req, res) => {
-      const scope = z.enum(['gym', 'area', 'all']).catch('gym').parse(req.query.scope);
+      const scope = z
+        .enum(['gym', 'area', 'city', 'region', 'country', 'global', 'all'])
+        .parse(req.query.scope ?? 'gym');
       res.json(
-        await service.discover(
-          viewer(req),
+        await service.discover(viewer(req), {
           scope,
-          String(req.query.q ?? ''),
-          String(req.query.interest ?? ''),
+          query: String(req.query.q ?? ''),
+          interest: String(req.query.interest ?? ''),
+          country: String(req.query.country ?? ''),
+          city: String(req.query.city ?? ''),
+          gymId: req.query.gym_id ? String(req.query.gym_id) : null,
+          limit: limitSchema.parse(req.query.limit) ?? 20,
+          offset: offsetSchema.parse(req.query.offset) ?? 0,
+        }),
+      );
+    }),
+  );
+
+  router.get(
+    '/gyms/provider',
+    asyncHandler(async (_req, res) => {
+      res.json(service.gymProviderStatus());
+    }),
+  );
+
+  router.get(
+    '/gyms/nearby',
+    asyncHandler(async (req, res) => {
+      res.json(
+        await service.nearbyGyms(
+          viewer(req),
+          z.coerce.number().min(-90).max(90).parse(req.query.lat),
+          z.coerce.number().min(-180).max(180).parse(req.query.lng),
+          z.coerce.number().int().min(1).max(100).optional().parse(req.query.radius_km),
           limitSchema.parse(req.query.limit) ?? 20,
-          offsetSchema.parse(req.query.offset) ?? 0,
         ),
       );
     }),
@@ -90,13 +119,24 @@ export function createCommunityRouter(options: {
     '/gyms',
     asyncHandler(async (req, res) => {
       res.json(
-        await service.searchGyms(
-          viewer(req),
-          String(req.query.q ?? ''),
-          limitSchema.parse(req.query.limit) ?? 20,
-          offsetSchema.parse(req.query.offset) ?? 0,
-        ),
+        await service.searchGyms(viewer(req), {
+          query: String(req.query.q ?? ''),
+          country: String(req.query.country ?? ''),
+          city: String(req.query.city ?? ''),
+          area: String(req.query.area ?? ''),
+          postalCode: String(req.query.postal_code ?? ''),
+          limit: limitSchema.parse(req.query.limit) ?? 20,
+          offset: offsetSchema.parse(req.query.offset) ?? 0,
+        }),
       );
+    }),
+  );
+
+  router.get(
+    '/gyms/:id',
+    asyncHandler(async (req, res) => {
+      const { id } = idsSchema.parse(req.params);
+      res.json(await service.gymDetails(viewer(req), id));
     }),
   );
 
@@ -109,6 +149,9 @@ export function createCommunityRouter(options: {
           city: z.string().trim().min(2).max(60),
           area: z.string().trim().max(60).nullish(),
           address: z.string().trim().max(160).nullish(),
+          state: z.string().trim().max(80).nullish(),
+          country: z.string().trim().max(80).nullish(),
+          postalCode: z.string().trim().max(24).nullish(),
         })
         .parse(req.body);
       res.status(201).json(await service.requestGym(viewer(req), input));
@@ -119,8 +162,36 @@ export function createCommunityRouter(options: {
     '/gyms/:id/join',
     asyncHandler(async (req, res) => {
       const { id } = idsSchema.parse(req.params);
-      await service.joinGym(viewer(req), id);
+      const input = z
+        .object({
+          isPrimary: z.boolean().optional(),
+          membershipType: z.enum(['member', 'day_pass', 'online', 'coach']).optional(),
+          visibility: z.enum(['private', 'members', 'public']).optional(),
+        })
+        .parse(req.body ?? {});
+      await service.joinGym(viewer(req), id, input);
       res.status(204).end();
+    }),
+  );
+
+  router.post(
+    '/gyms/:id/report',
+    asyncHandler(async (req, res) => {
+      const { id } = idsSchema.parse(req.params);
+      const input = z
+        .object({
+          reason: z.enum(['incorrect_details', 'spam', 'inappropriate', 'other']).default('incorrect_details'),
+          details: z.string().trim().max(1000).nullish(),
+        })
+        .parse(req.body ?? {});
+      res.status(201).json(
+        await service.report(viewer(req), {
+          targetType: 'gym',
+          targetID: id,
+          reason: input.reason,
+          details: input.details ?? null,
+        }),
+      );
     }),
   );
 
@@ -128,6 +199,15 @@ export function createCommunityRouter(options: {
     '/gyms/membership',
     asyncHandler(async (req, res) => {
       await service.leaveGym(viewer(req));
+      res.status(204).end();
+    }),
+  );
+
+  router.delete(
+    '/gyms/membership/:id',
+    asyncHandler(async (req, res) => {
+      const { id } = idsSchema.parse(req.params);
+      await service.removeGymMembership(viewer(req), id);
       res.status(204).end();
     }),
   );

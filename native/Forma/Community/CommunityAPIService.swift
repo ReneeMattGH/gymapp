@@ -62,52 +62,122 @@ actor CommunityAPIService: CommunityServicing {
         scope: CommunityScope,
         query: String,
         interest: String,
+        country: String,
+        city: String,
+        gymID: String?,
         limit: Int,
         offset: Int
     ) async throws -> [CommunityMember] {
+        var items = [
+            URLQueryItem(name: "scope", value: scope.rawValue),
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "interest", value: interest),
+            URLQueryItem(name: "country", value: country),
+            URLQueryItem(name: "city", value: city),
+            URLQueryItem(name: "limit", value: String(limit)),
+            URLQueryItem(name: "offset", value: String(offset)),
+        ]
+        if let gymID, !gymID.isEmpty {
+            items.append(URLQueryItem(name: "gym_id", value: gymID))
+        }
+        return try await get("api/v1/community/discover", query: items)
+    }
+
+    // MARK: - Gyms and area
+
+    func communitySearchGyms(
+        query: String,
+        country: String,
+        city: String,
+        area: String,
+        postalCode: String,
+        limit: Int,
+        offset: Int
+    ) async throws -> [GymSummary] {
         try await get(
-            "api/v1/community/discover",
+            "api/v1/community/gyms",
             query: [
-                URLQueryItem(name: "scope", value: scope.rawValue),
                 URLQueryItem(name: "q", value: query),
-                URLQueryItem(name: "interest", value: interest),
+                URLQueryItem(name: "country", value: country),
+                URLQueryItem(name: "city", value: city),
+                URLQueryItem(name: "area", value: area),
+                URLQueryItem(name: "postal_code", value: postalCode),
                 URLQueryItem(name: "limit", value: String(limit)),
                 URLQueryItem(name: "offset", value: String(offset)),
             ]
         )
     }
 
-    // MARK: - Gyms and area
-
-    func communitySearchGyms(query: String, limit: Int, offset: Int) async throws -> [GymSummary] {
+    func communityNearbyGyms(
+        latitude: Double,
+        longitude: Double,
+        radiusKm: Int,
+        limit: Int
+    ) async throws -> [GymSummary] {
         try await get(
-            "api/v1/community/gyms",
+            "api/v1/community/gyms/nearby",
             query: [
-                URLQueryItem(name: "q", value: query),
+                URLQueryItem(name: "lat", value: String(latitude)),
+                URLQueryItem(name: "lng", value: String(longitude)),
+                URLQueryItem(name: "radius_km", value: String(radiusKm)),
                 URLQueryItem(name: "limit", value: String(limit)),
-                URLQueryItem(name: "offset", value: String(offset)),
             ]
         )
+    }
+
+    func communityGymDetails(id: String) async throws -> GymSummary {
+        try await get("api/v1/community/gyms/\(id)")
+    }
+
+    func communityGymProviderStatus() async throws -> GymProviderStatus {
+        try await get("api/v1/community/gyms/provider")
     }
 
     func communityRequestGym(
         name: String,
         city: String,
         area: String?,
-        address: String?
+        address: String?,
+        state: String?,
+        country: String?,
+        postalCode: String?
     ) async throws -> GymRequestResult {
         try await post(
             "api/v1/community/gyms",
-            body: GymRequestBody(name: name, city: city, area: area, address: address)
+            body: GymRequestBody(
+                name: name,
+                city: city,
+                area: area,
+                address: address,
+                state: state,
+                country: country,
+                postalCode: postalCode
+            )
         )
     }
 
-    func communityJoinGym(id: String) async throws {
-        try await client.sendNoContent(.post("api/v1/community/gyms/\(id)/join"))
+    func communityJoinGym(id: String, isPrimary: Bool, membershipType: String, visibility: String) async throws {
+        try await client.sendNoContent(
+            try APIRequest.post(
+                "api/v1/community/gyms/\(id)/join",
+                body: GymJoinOptions(isPrimary: isPrimary, membershipType: membershipType, visibility: visibility)
+            )
+        )
+    }
+
+    func communityRemoveGymMembership(id: String) async throws {
+        try await delete("api/v1/community/gyms/membership/\(id)")
     }
 
     func communityLeaveGym() async throws {
         try await delete("api/v1/community/gyms/membership")
+    }
+
+    func communityReportGym(id: String, reason: GymReportReason, details: String?) async throws -> CommunityReportResult {
+        try await post(
+            "api/v1/community/gyms/\(id)/report",
+            body: GymReportBody(reason: reason.rawValue, details: details)
+        )
     }
 
     func communitySetArea(city: String, area: String) async throws {
@@ -402,6 +472,14 @@ private struct GymRequestBody: Encodable {
     let city: String
     let area: String?
     let address: String?
+    let state: String?
+    let country: String?
+    let postalCode: String?
+}
+
+private struct GymReportBody: Encodable {
+    let reason: String
+    let details: String?
 }
 
 private struct AreaBody: Encodable {
@@ -423,7 +501,10 @@ private struct PreferencesBody: Encodable {
     let discoverable: Bool
     let showGym: Bool
     let showArea: Bool
+    let showCity: Bool
+    let showCountry: Bool
     let nearbyDiscovery: Bool
+    let globalDiscovery: Bool
     let allowConnectionRequests: Bool
     let allowMessages: Bool
     let notifyConnections: Bool
@@ -435,7 +516,10 @@ private struct PreferencesBody: Encodable {
         discoverable = preferences.discoverable
         showGym = preferences.showGym
         showArea = preferences.showArea
+        showCity = preferences.showCity
+        showCountry = preferences.showCountry
         nearbyDiscovery = preferences.nearbyDiscovery
+        globalDiscovery = preferences.globalDiscovery
         allowConnectionRequests = preferences.allowConnectionRequests
         allowMessages = preferences.allowMessages
         notifyConnections = preferences.notifyConnections
@@ -547,14 +631,17 @@ final class CommunitySocket: @unchecked Sendable {
             let task = Task { [client, baseURL] in
                 var attempt = 0
                 while !Task.isCancelled {
-                    guard let tokens = await client.currentTokens() else {
-                        try? await Task.sleep(for: .seconds(2))
+                    let accessToken: String
+                    do {
+                        accessToken = try await client.validAccessToken()
+                    } catch {
+                        try? await Task.sleep(for: .seconds(5))
                         continue
                     }
                     do {
                         try await Self.listen(
                             baseURL: baseURL,
-                            token: tokens.accessToken,
+                            token: accessToken,
                             continuation: continuation
                         )
                     } catch is CancellationError {

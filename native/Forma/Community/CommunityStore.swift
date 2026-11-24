@@ -32,12 +32,14 @@ final class CommunityStore {
     // Discover
     var discoverScope: CommunityScope = .gym
     var discoverInterest = ""
+    var discoverCountry = ""
+    var discoverCity = ""
     private(set) var discoverResults: [CommunityMember] = []
     private(set) var discoverLoading = false
     private(set) var discoverLoadingMore = false
     private(set) var discoverHasMore = true
     private(set) var discoverError: String?
-    private var discoverQuery = ""
+    private(set) var discoverQuery = ""
 
     // Feed
     var feedFilter: CommunityFeedFilter = .all
@@ -69,6 +71,16 @@ final class CommunityStore {
     private(set) var gymResults: [GymSummary] = []
     private(set) var gymSearchLoading = false
     private(set) var gymSearchError: String?
+    private(set) var gymHasMore = false
+    private(set) var gymQuery = ""
+    private(set) var gymCountryFilter = ""
+    private(set) var gymCityFilter = ""
+    private(set) var nearbyGyms: [GymSummary] = []
+    private(set) var nearbyLoading = false
+    private(set) var nearbyError: String?
+    var nearbyRadiusKm = 5
+    private(set) var gymProviderStatus: GymProviderStatus?
+    private(set) var providerStatusLoading = false
 
     // Admin
     private(set) var adminReports: [CommunityModerationReport] = []
@@ -222,6 +234,7 @@ final class CommunityStore {
     var profile: CommunityProfile? { bootstrap?.profile }
     var preferences: CommunityPreferences? { bootstrap?.preferences }
     var membership: CommunityMembership? { bootstrap?.membership }
+    var memberships: [CommunityMembership] { bootstrap?.memberships ?? [] }
     var isAdmin: Bool { bootstrap?.isAdmin == true }
     var isSuspended: Bool { bootstrap?.suspended == true }
     var hasProfile: Bool { bootstrap?.profile != nil }
@@ -257,6 +270,18 @@ final class CommunityStore {
         await loadDiscover(reset: true)
     }
 
+    func setDiscoverCountry(_ country: String) async {
+        guard country != discoverCountry else { return }
+        discoverCountry = country
+        await loadDiscover(reset: true)
+    }
+
+    func setDiscoverCity(_ city: String) async {
+        guard city != discoverCity else { return }
+        discoverCity = city
+        await loadDiscover(reset: true)
+    }
+
     func loadDiscover(reset: Bool) async {
         guard let service else {
             discoverError = CommunityError.notConfigured.message
@@ -279,6 +304,9 @@ final class CommunityStore {
                 scope: discoverScope,
                 query: discoverQuery,
                 interest: discoverInterest,
+                country: discoverCountry,
+                city: discoverCity,
+                gymID: nil,
                 limit: Self.pageSize,
                 offset: offset
             )
@@ -508,25 +536,107 @@ final class CommunityStore {
         }
     }
 
-    func searchGyms(query: String) async {
+    func searchGyms(query: String, country: String? = nil, city: String? = nil, reset: Bool = true) async {
         guard let service else { return }
-        gymSearchLoading = true
-        gymSearchError = nil
+        if let country { gymCountryFilter = country }
+        if let city { gymCityFilter = city }
+        if reset {
+            gymQuery = query
+            gymSearchLoading = true
+            gymSearchError = nil
+        } else {
+            guard gymHasMore, !gymSearchLoading else { return }
+        }
         defer { gymSearchLoading = false }
         do {
-            gymResults = try await service.communitySearchGyms(query: query, limit: 30, offset: 0)
+            let rows = try await service.communitySearchGyms(
+                query: gymQuery,
+                country: gymCountryFilter,
+                city: gymCityFilter,
+                area: "",
+                postalCode: "",
+                limit: 30,
+                offset: reset ? 0 : gymResults.count
+            )
+            if reset {
+                gymResults = rows
+            } else {
+                let known = Set(gymResults.map(\.id))
+                gymResults += rows.filter { !known.contains($0.id) }
+            }
+            gymHasMore = rows.count >= 30
         } catch {
             gymSearchError = Self.message(error)
         }
     }
 
-    func requestGym(name: String, city: String, area: String?, address: String?) async -> GymRequestResult? {
+    func loadMoreGyms() async {
+        guard gymHasMore else { return }
+        await searchGyms(query: gymQuery, reset: false)
+    }
+
+    func loadGymProviderStatus() async {
+        guard let service, gymProviderStatus == nil, !providerStatusLoading else { return }
+        providerStatusLoading = true
+        defer { providerStatusLoading = false }
+        gymProviderStatus = try? await service.communityGymProviderStatus()
+    }
+
+    func loadNearbyGyms(latitude: Double, longitude: Double) async {
+        guard let service else { return }
+        nearbyLoading = true
+        nearbyError = nil
+        defer { nearbyLoading = false }
+        do {
+            nearbyGyms = try await service.communityNearbyGyms(
+                latitude: latitude,
+                longitude: longitude,
+                radiusKm: nearbyRadiusKm,
+                limit: 30
+            )
+        } catch {
+            nearbyError = Self.message(error)
+        }
+    }
+
+    func clearNearbyGyms() {
+        nearbyGyms = []
+        nearbyError = nil
+    }
+
+    func gymDetails(id: String) async -> GymSummary? {
+        guard let service else { return nil }
+        do {
+            return try await service.communityGymDetails(id: id)
+        } catch {
+            actionError = Self.message(error)
+            return nil
+        }
+    }
+
+    func requestGym(
+        name: String,
+        city: String,
+        area: String?,
+        address: String?,
+        state: String? = nil,
+        country: String? = nil,
+        postalCode: String? = nil
+    ) async -> GymRequestResult? {
         guard let service else { return nil }
         let key = "request-gym"
         begin(key)
         defer { end(key) }
         do {
-            let result = try await service.communityRequestGym(name: name, city: city, area: area, address: address)
+            let result = try await service.communityRequestGym(
+                name: name,
+                city: city,
+                area: area,
+                address: address,
+                state: state,
+                country: country,
+                postalCode: postalCode
+            )
             await searchGyms(query: name)
             return result
         } catch {
@@ -535,13 +645,34 @@ final class CommunityStore {
         }
     }
 
-    func joinGym(_ gym: GymSummary) async -> Bool {
+    func joinGym(_ gym: GymSummary, asPrimary: Bool = true, membershipType: String = "member", visibility: String = "members") async -> Bool {
         guard let service else { return false }
         let key = "join-gym"
         begin(key)
         defer { end(key) }
         do {
-            try await service.communityJoinGym(id: gym.id)
+            try await service.communityJoinGym(
+                id: gym.id,
+                isPrimary: asPrimary,
+                membershipType: membershipType,
+                visibility: visibility
+            )
+            await loadBootstrap()
+            await loadDiscover(reset: true)
+            return true
+        } catch {
+            actionError = Self.message(error)
+            return false
+        }
+    }
+
+    func removeMembership(gymID: String) async -> Bool {
+        guard let service else { return false }
+        let key = "remove-membership-\(gymID)"
+        begin(key)
+        defer { end(key) }
+        do {
+            try await service.communityRemoveGymMembership(id: gymID)
             await loadBootstrap()
             await loadDiscover(reset: true)
             return true
@@ -560,6 +691,20 @@ final class CommunityStore {
             try await service.communityLeaveGym()
             await loadBootstrap()
             await loadDiscover(reset: true)
+            return true
+        } catch {
+            actionError = Self.message(error)
+            return false
+        }
+    }
+
+    func reportGym(_ gym: GymSummary, reason: GymReportReason, details: String?) async -> Bool {
+        guard let service else { return false }
+        let key = "report-gym-\(gym.id)"
+        begin(key)
+        defer { end(key) }
+        do {
+            _ = try await service.communityReportGym(id: gym.id, reason: reason, details: details)
             return true
         } catch {
             actionError = Self.message(error)

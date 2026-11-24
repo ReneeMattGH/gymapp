@@ -54,7 +54,10 @@ npm run dev              # tsx watch on http://localhost:8787
 
 `AUTO_MIGRATE=true` (the default in `.env.example`) also applies pending
 migrations on boot, so `npm run migrate` is optional for local work and should
-stay an explicit deploy step in production.
+stay an explicit deploy step in production. Boot then verifies that every
+migration in this build is recorded and that the critical tables and columns
+exist; an incompatible database is reported and the process exits instead of
+serving traffic that would fail later with SQL errors.
 
 Check it:
 
@@ -89,14 +92,72 @@ is ignored by git.
 ## 3. Point the app at the backend
 
 The app reads `FORMA_API_URL` from `Info.plist`, which expands the user-defined
-build setting of the same name.
+build setting of the same name. A `FORMA_API_URL` entry in the launch
+environment overrides it, so a device build can be pointed at a LAN address
+from the Xcode scheme (Product → Scheme → Edit Scheme → Run → Arguments →
+Environment Variables) without changing the target:
+
+```text
+FORMA_API_URL = http://192.168.1.20:8787/   # replace with your Mac's LAN address
+```
 
 - Simulator talking to a backend on the Mac: `http://localhost:8787` (already the
   Debug default).
-- Physical device: use the Mac's LAN address, e.g. `http://192.168.1.20:8787`,
-  and make sure the backend binds an interface the phone can reach (`HOST`).
+- Physical device: use the Mac's LAN address, e.g. `http://192.168.1.20:8787`.
+  `localhost` on a phone is the phone itself, so requests to the Debug default
+  can never reach your Mac. The backend must also bind an interface the phone can
+  reach (`HOST=0.0.0.0` or the LAN address) and macOS firewall must allow it.
 - Production: an HTTPS origin. Set `FORMA_BUILD_CHANNEL` to the channel name you
   want shown in the app.
+
+When a build points at a loopback host while running on a physical device, the
+Account screen shows one banner saying exactly that instead of a generic network
+error.
+
+### Building for a physical iPhone
+
+1. Put the Mac and the iPhone on the same Wi-Fi network. The app reaches your Mac
+   over the network; the USB cable only installs and launches it.
+2. Read the Mac's LAN address:
+
+   ```bash
+   ipconfig getifaddr en0     # e.g. 192.168.137.64
+   ```
+
+3. Bake that origin into the build. A launch-environment variable only applies
+   when Xcode launches the app, so an app installed from the Home Screen or with
+   `devicectl` needs the build setting:
+
+   ```bash
+   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+   xcodebuild -project Forma.xcodeproj -scheme Forma -configuration Debug \
+     -destination "platform=iOS,id=<device-udid>" \
+     -allowProvisioningUpdates \
+     FORMA_API_URL="http://192.168.137.64:8787" build
+   ```
+
+   `-destination` uses the hardware UDID (`00008101-…`), not the CoreDevice UUID
+   that `xcrun devicectl list devices` prints.
+
+4. Keep the backend on `HOST=0.0.0.0` and make sure macOS does not block Node.
+   An explicit "Block incoming connections" firewall rule resets LAN requests
+   before Express sees them (the symptom is an empty reply, not a timeout):
+
+   ```bash
+   /usr/libexec/ApplicationFirewall/socketfilterfw --listapps | grep -A1 node
+   sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp "$(which node)"
+   ```
+
+5. On first launch iOS asks for local-network permission
+   (`NSLocalNetworkUsageDescription`); allow it.
+6. Test the network path from the phone itself before blaming the app: open
+   `http://<mac-lan-ip>:8787/health` in Safari and expect
+   `{"status":"ok","database":"up"…}`.
+
+7. Production: deploy the backend behind HTTPS and pass that origin at build
+   time (`FORMA_API_URL="https://api.example.com"`). Never ship `localhost` or a
+   LAN address in Release. Release defaults to an empty URL, which shows accounts
+   as unavailable instead of failing at runtime.
 
 ## 4. Accounts and authentication
 
@@ -105,11 +166,19 @@ build setting of the same name.
 - Passwords are hashed with Argon2id. Verification and reset tokens are random,
   single-use, stored only as SHA-256 hashes, and expire.
 - Access and refresh tokens are opaque random strings; only their hashes are
-  stored. Refresh rotates the pair and revokes the previous refresh token.
-  Logout, password change, and account deletion revoke sessions server-side.
+  stored. Access tokens live 60 minutes (`ACCESS_TOKEN_TTL_MINUTES`); the
+  session and its refresh tokens live 30 days (`REFRESH_TOKEN_TTL_DAYS`) and
+  slide forward on every rotation. A session therefore survives a cold start a
+  day later by refreshing, even though its access token expired.
+- Refresh rotates the pair and revokes the previous refresh token; presenting a
+  rotated token again kills the session. Logout, password change, and account
+  deletion revoke sessions server-side, and an open Community socket is
+  disconnected within a minute of its session being revoked or its access token
+  expiring.
 - The client stores tokens in the Keychain (`coach.forma.tokens`), never in
-  UserDefaults or SQLite. `APIClient` refreshes a 401 once (single-flight) and
-  retries; a refresh failure clears the session.
+  UserDefaults or SQLite. `APIClient` refreshes proactively when the access
+  token is within 30 seconds of expiry and also on a 401 (single-flight), then
+  retries; a failed refresh clears the session.
 - Account deletion requires the current password and removes the account and its
   Community data server-side. On-device training data is not touched.
 
@@ -135,9 +204,24 @@ Socket events are `ready` (handshake confirmation), `notification`, `activity`
 backoff, resubscribes, and reloads lists on reconnect; REST remains the source of
 truth so a missed event delays a refresh but never corrupts state.
 
-Gyms are user-discovered and admin-reviewed; no gyms are seeded. Chennai areas
-ship as coarse reference groups. Discovery uses only the chosen gym or area and
-never requests location permission.
+Gyms come from the server-side directory provider and member submissions; no
+gyms are seeded. Discovery covers gym, neighborhood, city, region, country, and
+Global scope, and never requests location permission on its own.
+
+Provider configuration (all optional, backend `.env`):
+
+| Variable | Behavior |
+| --- | --- |
+| `GYM_PROVIDER` | `auto` (default), `google`, `osm`, or `none` |
+| `GOOGLE_PLACES_API_KEY` | Enables Google Places under `auto`/`google`; without it nearby falls back to OpenStreetMap |
+| `OSM_TEXT_SEARCH` | OSM nearby search works with no key; global OSM name search needs `true` or a self-hosted Overpass |
+| `GYM_PROVIDER_TIMEOUT_MS` | Outbound provider timeout, default `12000` |
+
+With no usable provider the gym search endpoints answer
+`503 gym_directory_unavailable`; database search and member-submitted gyms keep
+working. "Near me" asks for a one-time location fix only after a tap, sends the
+coordinate solely to the directory to rank by distance, and never stores it on
+the profile.
 
 ## 6. On-device data and offline behavior
 
@@ -249,9 +333,17 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 ```
 
 With the backend reachable at `localhost:8787`, the test creates a real account
-through the UI, verifies the live Community bootstrap, opens the community
-profile editor, and deletes the account. Without it, the account form is not
-submitted and the Community-unavailable copy is verified instead.
+through the UI, signs out and back in, cold-launches the app and checks the
+session is restored from the Keychain, verifies the live Community bootstrap,
+opens the community profile editor, and deletes the account. Without it, the
+account form is not submitted and the Community-unavailable copy is verified
+instead.
+
+`FORMA_TEST_API_URL` (passed as `TEST_RUNNER_FORMA_TEST_API_URL=...` to
+`xcodebuild`) repoints both the reachability probe and the app's launch
+environment, which also exercises the override a device build uses. Running a
+second backend with `ACCESS_TOKEN_TTL_MINUTES=1` on another port is how the
+refresh path is driven end to end without waiting an hour.
 
 Screenshots are attached to the result bundle:
 

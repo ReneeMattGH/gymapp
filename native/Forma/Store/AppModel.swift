@@ -129,9 +129,13 @@ final class AppModel {
         didSet { UserDefaults.standard.set(healthOptIn, forKey: Self.healthKey) }
     }
     var healthSummary: HealthSummary?
+    var todayHealth: HealthSummary?
     var healthBusy = false
+    var todayHealthBusy = false
     var healthError: String?
+    var todayHealthError: String?
     var healthFetched = false
+    var todayHealthFetched = false
 
     // Exercise library preferences (local to this device)
     var favoriteExercises: Set<String> {
@@ -1211,11 +1215,26 @@ final class AppModel {
             _ = try await HealthKitService.shared.requestAuthorization()
             healthOptIn = true
             await loadHealth()
+            await loadTodayHealth(force: true)
         } catch {
             healthError = error.localizedDescription
             healthOptIn = false
         }
         healthBusy = false
+    }
+
+    func loadTodayHealth(force: Bool = false) async {
+        guard healthOptIn, healthAvailable else { return }
+        guard force || (!todayHealthBusy && !todayHealthFetched) else { return }
+        todayHealthBusy = true
+        todayHealthError = nil
+        do {
+            todayHealth = try await HealthKitService.shared.fetchToday()
+            todayHealthFetched = true
+        } catch {
+            todayHealthError = error.localizedDescription
+        }
+        todayHealthBusy = false
     }
 
     func loadHealth() async {
@@ -1234,7 +1253,10 @@ final class AppModel {
     func disableHealth() {
         healthOptIn = false
         healthSummary = nil
+        todayHealth = nil
         healthFetched = false
+        todayHealthFetched = false
         healthError = nil
+        todayHealthError = nil
     }
 }

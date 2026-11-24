@@ -44,7 +44,9 @@ struct CommunityNotificationsView: View {
                     }
                 }
 
-                NavigationLink(value: CommunityRoute.settings) {
+                NavigationLink {
+                    communityDestination(.settings, store: store)
+                } label: {
                     HStack(spacing: Spacing.md) {
                         Image(systemName: "slider.horizontal.3")
                             .foregroundStyle(palette.textSecondary)
@@ -84,7 +86,9 @@ struct CommunityNotificationsView: View {
     @ViewBuilder
     private func notificationRow(_ notification: CommunityNotification) -> some View {
         if let route = route(for: notification) {
-            NavigationLink(value: route) {
+            NavigationLink {
+                communityDestination(route, store: store)
+            } label: {
                 content(notification)
             }
             .buttonStyle(.plain)
@@ -116,7 +120,7 @@ struct CommunityNotificationsView: View {
                         .foregroundStyle(palette.text)
                     if notification.isUnread {
                         Circle()
-                            .fill(palette.accent)
+                            .fill(palette.accentText)
                             .frame(width: 6, height: 6)
                     }
                 }
@@ -145,7 +149,13 @@ struct CommunityNotificationsView: View {
         switch notification.kind {
         case "connection_request":
             return .connectionRequests
-        case "connection_accepted", "message":
+        case "message":
+            guard let actorID = notification.actorID else { return nil }
+            if let conversation = store.conversations.first(where: { $0.userID == actorID }) {
+                return .conversation(conversation)
+            }
+            return .member(actorID)
+        case "connection_accepted":
             guard let actorID = notification.actorID else { return nil }
             return .member(actorID)
         case "post_comment", "post_like":

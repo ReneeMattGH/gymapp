@@ -3,7 +3,7 @@ import { Server } from 'socket.io';
 import { loadConfig } from './config.js';
 import { createLogger } from './logger.js';
 import { createPool } from './db/pool.js';
-import { runMigrations } from './db/migrate.js';
+import { runMigrations, verifySchema } from './db/migrate.js';
 import { createMailer } from './auth/mailer.js';
 import { createAuthService } from './auth/service.js';
 import { createCommunityService, noRealtime } from './community/service.js';
@@ -17,6 +17,15 @@ const pool = createPool(config.databaseUrl);
 if (config.autoMigrate) {
   const applied = await runMigrations(pool, logger);
   logger.info({ applied }, 'database schema up to date');
+}
+
+// Refuse to serve traffic against a database this build does not understand,
+// instead of failing later with confusing SQL errors.
+const schemaProblems = await verifySchema(pool);
+if (schemaProblems.length > 0) {
+  logger.error({ problems: schemaProblems }, 'database schema is incompatible; run `npm run migrate`');
+  await pool.end();
+  process.exit(1);
 }
 
 const mailer = createMailer({ smtpUrl: config.smtpUrl, from: config.mailFrom });

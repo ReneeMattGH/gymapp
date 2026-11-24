@@ -23,7 +23,7 @@ struct MainTabView: View {
                 .tabItem { Label("Community", systemImage: "person.2") }
                 .tag(AppTab.community)
 
-            ProgressView()
+            ProgressScreen()
                 .tabItem { Label("Progress", systemImage: "chart.line.uptrend.xyaxis") }
                 .tag(AppTab.progress)
 
@@ -31,7 +31,7 @@ struct MainTabView: View {
                 .tabItem { Label("Profile", systemImage: "person.crop.circle") }
                 .tag(AppTab.profile)
         }
-        .tint(palette.accent)
+        .tint(palette.accentText)
         .toolbarBackground(palette.background, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
         .onChange(of: model.pendingDeepLink, initial: true) { _, link in
@@ -63,7 +63,7 @@ struct MainTabView: View {
         case .progress:
             selection = .progress
             model.consumeDeepLink(.progress)
-        case .community, .connectionRequests, .messages:
+        case .community, .connectionRequests, .messages, .notifications:
             selection = .community
         }
     }
@@ -112,6 +112,7 @@ struct HomeView: View {
                     if let startError {
                         ErrorBanner(message: startError)
                     }
+                    performanceSection
                     todaySection
                     weekSection
                     quickActions
@@ -133,6 +134,7 @@ struct HomeView: View {
             .onChange(of: model.pendingDeepLink, initial: true) { _, link in
                 handleDeepLink(link)
             }
+            .task { await model.loadTodayHealth() }
         }
     }
 
@@ -169,10 +171,22 @@ struct HomeView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: Spacing.md)
-            BrandMark(size: 34, color: palette.accent)
-                .padding(9)
-                .background(palette.surface, in: Circle())
-                .overlay { Circle().strokeBorder(palette.border, lineWidth: 1) }
+            HStack(spacing: Spacing.sm) {
+                IconButton(systemImage: "bell", label: "Community notifications") {
+                    selection = .community
+                    model.pendingDeepLink = .notifications
+                }
+                Button {
+                    Haptics.light()
+                    selection = .profile
+                } label: {
+                    ProfileAvatar(profile: model.profile, size: 38)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(PressableScaleStyle())
+                .accessibilityLabel("Open your profile")
+            }
         }
     }
 
@@ -195,12 +209,155 @@ struct HomeView: View {
 
     private var syncTint: Color {
         switch model.syncState {
-        case .live: palette.accent
+        case .live: palette.accentText
         case .syncing: palette.warning
         case .offline: palette.warning
         case .cached: palette.textTertiary
         case .local: palette.textTertiary
         }
+    }
+
+    // MARK: - Today's performance
+
+    private var performanceSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            if model.healthOptIn && model.healthAvailable {
+                SectionHeader(
+                    title: "Today's performance",
+                    action: (label: "Refresh", action: { Task { await model.loadTodayHealth(force: true) } })
+                )
+            } else {
+                SectionHeader(title: "Today's performance")
+            }
+            performanceContent
+        }
+    }
+
+    @ViewBuilder
+    private var performanceContent: some View {
+        if !model.healthAvailable {
+            FormaCard {
+                performanceMessage(
+                    icon: "heart.slash",
+                    title: "Apple Health is unavailable",
+                    detail: "This device cannot read Health records, so there is no activity data to show here."
+                )
+            }
+        } else if !model.healthOptIn {
+            FormaCard {
+                VStack(alignment: .leading, spacing: Spacing.md) {
+                    performanceMessage(
+                        icon: "heart.text.square",
+                        title: "Bring your real activity into view",
+                        detail: "Today's steps, active energy and workouts can appear here. Forma reads them from Apple Health only with your permission and never uploads them."
+                    )
+                    if let healthError = model.healthError {
+                        ErrorBanner(message: healthError)
+                    }
+                    PrimaryButton(title: "Connect Apple Health", systemImage: "heart", isLoading: model.healthBusy) {
+                        Task { await model.requestHealthAccess() }
+                    }
+                }
+            }
+        } else if model.todayHealthBusy && model.todayHealth == nil {
+            FormaCard {
+                HStack(spacing: Spacing.sm) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        VStack(alignment: .leading, spacing: Spacing.sm) {
+                            SkeletonBlock(height: 22, width: 54)
+                            SkeletonBlock(height: 9, width: 38)
+                        }
+                        .padding(Spacing.md)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(palette.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+                    }
+                }
+            }
+        } else if let healthError = model.todayHealthError {
+            FormaCard {
+                VStack(alignment: .leading, spacing: Spacing.md) {
+                    ErrorBanner(message: healthError)
+                    SecondaryButton(title: "Try again", systemImage: "arrow.clockwise") {
+                        Task { await model.loadTodayHealth(force: true) }
+                    }
+                }
+            }
+        } else if let today = model.todayHealth, hasHealthData(today) {
+            todayPerformanceCard(today)
+        } else {
+            FormaCard {
+                performanceMessage(
+                    icon: "waveform.path.ecg",
+                    title: "Nothing recorded today",
+                    detail: "Apple Health has no steps, active energy or workouts for today yet. Values appear as soon as your devices record them."
+                )
+            }
+        }
+    }
+
+    private func todayPerformanceCard(_ summary: HealthSummary) -> some View {
+        let workoutSeconds = summary.workouts.reduce(0) { $0 + $1.duration }
+        let workoutMinutes = Int((workoutSeconds / 60).rounded())
+        let workoutValue = summary.workouts.isEmpty ? "—" : (workoutMinutes == 0 ? "<1" : "\(workoutMinutes)")
+        return FormaCard {
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                HStack(spacing: Spacing.sm) {
+                    StatTile(
+                        value: summary.steps.map { $0.formatted() } ?? "—",
+                        label: "Steps",
+                        detail: summary.steps == nil ? "No data" : "today"
+                    )
+                    StatTile(
+                        value: summary.activeEnergyKcal.map { "\(Int($0.rounded()))" } ?? "—",
+                        label: "Energy",
+                        detail: summary.activeEnergyKcal == nil ? "No data" : "kcal"
+                    )
+                    StatTile(
+                        value: workoutValue,
+                        label: "Workout",
+                        detail: summary.workouts.isEmpty ? "No data" : "minutes",
+                        accent: !summary.workouts.isEmpty
+                    )
+                }
+                if let heart = summary.latestHeartRate {
+                    HStack(spacing: 6) {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(palette.danger)
+                        Text("Latest heart rate \(Int(heart.bpm.rounded())) bpm")
+                            .font(FormaFont.bodyFont(11, weight: .medium))
+                            .foregroundStyle(palette.textSecondary)
+                        Spacer(minLength: 0)
+                        Text(heart.date.formatted(date: .omitted, time: .shortened))
+                            .font(FormaFont.bodyFont(10.5))
+                            .foregroundStyle(palette.textTertiary)
+                    }
+                }
+            }
+        }
+    }
+
+    private func hasHealthData(_ summary: HealthSummary) -> Bool {
+        summary.steps != nil
+            || summary.activeEnergyKcal != nil
+            || !summary.workouts.isEmpty
+            || summary.latestHeartRate != nil
+    }
+
+    private func performanceMessage(icon: String, title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(palette.accentText)
+            Text(title)
+                .font(FormaFont.displayFont(17, weight: .semibold))
+                .foregroundStyle(palette.text)
+            Text(detail)
+                .font(FormaFont.bodyFont(12.5))
+                .foregroundStyle(palette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Today

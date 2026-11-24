@@ -28,7 +28,9 @@ struct CommunityConnectionsSection: View {
                         SectionHeader(title: "Requests for you")
                         ForEach(store.incomingRequests) { request in
                             HStack(spacing: Spacing.md) {
-                                NavigationLink(value: CommunityRoute.member(request.userID)) {
+                                NavigationLink {
+                                    communityDestination(.member(request.userID), store: store)
+                                } label: {
                                     CommunityMemberRow(
                                         member: CommunityMember.requestRow(
                                             id: request.userID,
@@ -57,7 +59,9 @@ struct CommunityConnectionsSection: View {
                             .fixedSize(horizontal: false, vertical: true)
                     } else {
                         ForEach(accepted) { connection in
-                            NavigationLink(value: CommunityRoute.member(connection.userID)) {
+                            NavigationLink {
+                                communityDestination(.member(connection.userID), store: store)
+                            } label: {
                                 CommunityMemberRow(member: connection.asMember)
                             }
                             .buttonStyle(.plain)
@@ -72,7 +76,9 @@ struct CommunityConnectionsSection: View {
                     FormaCard {
                         SectionHeader(title: "Sent requests")
                         ForEach(pendingSent) { connection in
-                            NavigationLink(value: CommunityRoute.member(connection.userID)) {
+                            NavigationLink {
+                                communityDestination(.member(connection.userID), store: store)
+                            } label: {
                                 HStack(spacing: Spacing.md) {
                                     CommunityMemberRow(member: connection.asMember)
                                 }
@@ -98,7 +104,9 @@ struct CommunityConnectionsSection: View {
                     )
                 }
 
-                NavigationLink(value: CommunityRoute.blockedMembers) {
+                NavigationLink {
+                    communityDestination(.blockedMembers, store: store)
+                } label: {
                     HStack(spacing: Spacing.md) {
                         Image(systemName: "hand.raised")
                             .foregroundStyle(palette.textSecondary)
@@ -137,11 +145,12 @@ struct CommunityConnectionsSection: View {
                     }
                 }
                 .foregroundStyle(palette.accentInk)
-                .padding(.horizontal, Spacing.md)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
                 .background(palette.accent, in: Capsule())
             }
             .buttonStyle(PressableScaleStyle())
+            .disabled(store.isBusy("respond-\(request.connectionID)"))
 
             Button {
                 Task { await store.respond(to: request, accept: false) }
@@ -149,11 +158,12 @@ struct CommunityConnectionsSection: View {
                 Text("Decline")
                     .font(FormaFont.bodyFont(12, weight: .medium))
                     .foregroundStyle(palette.textSecondary)
-                    .padding(.horizontal, Spacing.md)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 44)
                     .background(palette.surfaceRaised, in: Capsule())
             }
             .buttonStyle(PressableScaleStyle())
+            .disabled(store.isBusy("respond-\(request.connectionID)"))
         }
     }
 }
@@ -175,7 +185,9 @@ struct CommunityConnectionRequestsView: View {
                     ForEach(store.incomingRequests) { request in
                         FormaCard {
                             HStack(spacing: Spacing.md) {
-                                NavigationLink(value: CommunityRoute.member(request.userID)) {
+                                NavigationLink {
+                                    communityDestination(.member(request.userID), store: store)
+                                } label: {
                                     CommunityMemberRow(
                                         member: CommunityMember.requestRow(
                                             id: request.userID,

@@ -90,9 +90,20 @@ Community exists only when a backend URL is configured and an account is signed
 in. It is a first-class tab backed by real records; there are no seed members,
 sample requests, or placeholder posts.
 
-- Members pick a gym (discovered and admin-verified) or a coarse Chennai area.
-  Matching never uses GPS, presence, or exact distance, and the app requests no
-  location permission.
+- Gym selection has three real paths: **Near me** (optional one-time location
+  fix, passed only to the gym directory to measure distance), **Search
+  worldwide** (name, city, country, postcode), and **Manual** (area picker or
+  submit a missing gym). One primary gym plus optional other gyms, removable at
+  any time, and selection can be skipped entirely.
+- The gym directory is served by the backend: Google Places when
+  `GOOGLE_PLACES_API_KEY` is set, otherwise OpenStreetMap Overpass. Nearby OSM
+  search needs no key; OSM name search is disabled unless the deployment sets
+  `OSM_TEXT_SEARCH=true` or self-hosts Overpass. Local database search and
+  member-submitted gyms always work. With no provider configured, gym search
+  answers 503 `gym_directory_unavailable` instead of inventing listings.
+- Matching uses the chosen gym, neighborhood, city, region, country, or Global
+  scope. It never uses GPS, live presence, or exact distance, no coordinate is
+  stored on a profile, and choosing a gym does not announce attendance.
 - Discovery returns only accounts with a completed profile that are discoverable
   and compatible on age band. Blocks, suspension, privacy switches, and
   connection state are enforced by the server for every read and write.

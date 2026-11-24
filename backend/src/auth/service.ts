@@ -68,9 +68,9 @@ export function createAuthService(options: {
     const refreshExpires = new Date(Date.now() + config.refreshTokenTtlDays * 86_400_000);
 
     const session = await client.query<{ id: string }>(
-      `INSERT INTO sessions (user_id, access_token_hash, expires_at)
-       VALUES ($1, $2, $3) RETURNING id`,
-      [userId, hashToken(accessToken), accessExpires],
+      `INSERT INTO sessions (user_id, access_token_hash, access_expires_at, expires_at)
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+      [userId, hashToken(accessToken), accessExpires, refreshExpires],
     );
     const sessionId = session.rows[0]!.id;
     await client.query(
@@ -241,9 +241,13 @@ export function createAuthService(options: {
           `UPDATE refresh_tokens SET rotated_at = now(), replaced_by = $2 WHERE id = $1`,
           [stored.id, inserted.rows[0]!.id],
         );
+        // Rotation replaces the access token and slides the session and the
+        // new refresh token to the same 30-day deadline.
         await client.query(
-          'UPDATE sessions SET access_token_hash = $2, expires_at = $3 WHERE id = $1',
-          [stored.session_id, hashToken(accessToken), accessExpires],
+          `UPDATE sessions
+              SET access_token_hash = $2, access_expires_at = $3, expires_at = $4
+            WHERE id = $1`,
+          [stored.session_id, hashToken(accessToken), accessExpires, refreshExpires],
         );
         await client.query('COMMIT');
 
@@ -307,7 +311,29 @@ export function createAuthService(options: {
       if (!user || !(await verifyPassword(user.password_hash, password))) {
         throw unauthorized('Password is incorrect.');
       }
-      await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        // Pending user-submitted gyms are only visible to their submitter. Left
+        // behind they become rows nobody can see or re-submit, because dedupe
+        // still treats them as existing. Joined gyms stay put.
+        await client.query(
+          `DELETE FROM gyms g
+            WHERE g.submitted_by = $1
+              AND g.verification_status = 'pending'
+              AND NOT EXISTS (
+                SELECT 1 FROM gym_memberships m WHERE m.gym_id = g.id AND m.user_id <> $1
+              )`,
+          [userId],
+        );
+        await client.query('DELETE FROM users WHERE id = $1', [userId]);
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
     },
 
     async changePassword(

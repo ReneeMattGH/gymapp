@@ -12,7 +12,7 @@ struct RootView: View {
             content
         }
         .preferredColorScheme(model.colorScheme)
-        .tint(palette.accent)
+        .tint(palette.accentText)
         .task {
             guard !didBootstrap else { return }
             didBootstrap = true
@@ -64,13 +64,14 @@ struct RootView: View {
 
 struct LaunchView: View {
     @Environment(\.formaPalette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
 
     var body: some View {
         VStack(spacing: Spacing.lg) {
-            BrandMark(size: 58, color: palette.accent)
+            BrandMark(size: 58, color: palette.accentText)
                 .scaleEffect(pulse ? 1.04 : 0.98)
-                .animation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true), value: pulse)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 1.4).repeatForever(autoreverses: true), value: pulse)
             Text("FORMA")
                 .font(FormaFont.displayFont(17, weight: .bold))
                 .tracking(5)

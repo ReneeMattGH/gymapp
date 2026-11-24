@@ -667,7 +667,7 @@ struct PlanDayDetailView: View {
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 HStack(alignment: .top, spacing: Spacing.sm) {
                     Circle()
-                        .fill(palette.accent)
+                        .fill(palette.accentText)
                         .frame(width: 4, height: 4)
                         .padding(.top, 6)
                     Text(item)

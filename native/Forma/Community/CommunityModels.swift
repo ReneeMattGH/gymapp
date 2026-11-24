@@ -5,7 +5,10 @@ import Foundation
 enum CommunityScope: String, CaseIterable, Identifiable, Hashable {
     case gym
     case area
-    case all
+    case city
+    case region
+    case country
+    case global
 
     var id: String { rawValue }
 
@@ -13,7 +16,10 @@ enum CommunityScope: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .gym: "My gym"
         case .area: "Nearby"
-        case .all: "Everyone"
+        case .city: "City"
+        case .region: "Region"
+        case .country: "Country"
+        case .global: "Global"
         }
     }
 
@@ -21,7 +27,10 @@ enum CommunityScope: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .gym: "Members who selected the same gym as you."
         case .area: "Members in your area or a neighbouring area group."
-        case .all: "Members who chose to be discoverable, wherever they train."
+        case .city: "Members in your city who chose to share it."
+        case .region: "Members whose primary gym is in the same region as yours."
+        case .country: "Members in your country who chose to share it."
+        case .global: "Discoverable members anywhere, matched by country, city, gym or interests."
         }
     }
 }
@@ -144,48 +153,169 @@ struct CommunityPreferences: Codable, Hashable {
     var discoverable: Bool
     var showGym: Bool
     var showArea: Bool
+    var showCity: Bool
+    var showCountry: Bool
     var nearbyDiscovery: Bool
+    var globalDiscovery: Bool
     var allowConnectionRequests: Bool
     var allowMessages: Bool
     var city: String?
     var area: String?
+    var country: String?
+    var countryCode: String?
     var notifyConnections: Bool
     var notifyMessages: Bool
     var notifyComments: Bool
     var notifyLikes: Bool
+
+    init(
+        userID: String,
+        discoverable: Bool,
+        showGym: Bool,
+        showArea: Bool,
+        showCity: Bool = true,
+        showCountry: Bool = true,
+        nearbyDiscovery: Bool,
+        globalDiscovery: Bool = true,
+        allowConnectionRequests: Bool,
+        allowMessages: Bool,
+        city: String?,
+        area: String?,
+        country: String? = nil,
+        countryCode: String? = nil,
+        notifyConnections: Bool,
+        notifyMessages: Bool,
+        notifyComments: Bool,
+        notifyLikes: Bool
+    ) {
+        self.userID = userID
+        self.discoverable = discoverable
+        self.showGym = showGym
+        self.showArea = showArea
+        self.showCity = showCity
+        self.showCountry = showCountry
+        self.nearbyDiscovery = nearbyDiscovery
+        self.globalDiscovery = globalDiscovery
+        self.allowConnectionRequests = allowConnectionRequests
+        self.allowMessages = allowMessages
+        self.city = city
+        self.area = area
+        self.country = country
+        self.countryCode = countryCode
+        self.notifyConnections = notifyConnections
+        self.notifyMessages = notifyMessages
+        self.notifyComments = notifyComments
+        self.notifyLikes = notifyLikes
+    }
 
     enum CodingKeys: String, CodingKey {
         case userID = "user_id"
         case discoverable
         case showGym = "show_gym"
         case showArea = "show_area"
+        case showCity = "show_city"
+        case showCountry = "show_country"
         case nearbyDiscovery = "nearby_discovery"
+        case globalDiscovery = "global_discovery"
         case allowConnectionRequests = "allow_connection_requests"
         case allowMessages = "allow_messages"
         case city
         case area
+        case country
+        case countryCode = "country_code"
         case notifyConnections = "notify_connections"
         case notifyMessages = "notify_messages"
         case notifyComments = "notify_comments"
         case notifyLikes = "notify_likes"
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        userID = try container.decode(String.self, forKey: .userID)
+        discoverable = try container.decodeIfPresent(Bool.self, forKey: .discoverable) ?? false
+        showGym = try container.decodeIfPresent(Bool.self, forKey: .showGym) ?? true
+        showArea = try container.decodeIfPresent(Bool.self, forKey: .showArea) ?? true
+        showCity = try container.decodeIfPresent(Bool.self, forKey: .showCity) ?? showArea
+        showCountry = try container.decodeIfPresent(Bool.self, forKey: .showCountry) ?? true
+        nearbyDiscovery = try container.decodeIfPresent(Bool.self, forKey: .nearbyDiscovery) ?? false
+        globalDiscovery = try container.decodeIfPresent(Bool.self, forKey: .globalDiscovery) ?? true
+        allowConnectionRequests = try container.decodeIfPresent(Bool.self, forKey: .allowConnectionRequests) ?? true
+        allowMessages = try container.decodeIfPresent(Bool.self, forKey: .allowMessages) ?? true
+        city = try container.decodeIfPresent(String.self, forKey: .city)
+        area = try container.decodeIfPresent(String.self, forKey: .area)
+        country = try container.decodeIfPresent(String.self, forKey: .country)
+        countryCode = try container.decodeIfPresent(String.self, forKey: .countryCode)
+        notifyConnections = try container.decodeIfPresent(Bool.self, forKey: .notifyConnections) ?? true
+        notifyMessages = try container.decodeIfPresent(Bool.self, forKey: .notifyMessages) ?? true
+        notifyComments = try container.decodeIfPresent(Bool.self, forKey: .notifyComments) ?? true
+        notifyLikes = try container.decodeIfPresent(Bool.self, forKey: .notifyLikes) ?? true
+    }
 }
 
-struct CommunityMembership: Codable, Hashable {
+struct CommunityMembership: Codable, Hashable, Identifiable {
     var gymID: String
+    var membershipID: String
     var gymName: String
     var address: String?
-    var city: String
+    var city: String?
     var area: String?
+    var state: String?
+    var country: String?
+    var countryCode: String?
+    var postalCode: String?
+    var membershipType: String
+    var isPrimary: Bool
+    var visibility: String
     var verificationStatus: String
+
+    var id: String { membershipID.isEmpty ? gymID : membershipID }
 
     enum CodingKeys: String, CodingKey {
         case gymID = "gym_id"
+        case membershipID = "membership_id"
         case gymName = "gym_name"
         case address
         case city
         case area
+        case state
+        case country
+        case countryCode = "country_code"
+        case postalCode = "postal_code"
+        case membershipType = "membership_type"
+        case isPrimary = "is_primary"
+        case visibility
         case verificationStatus = "verification_status"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        gymID = try container.decode(String.self, forKey: .gymID)
+        membershipID = try container.decodeIfPresent(String.self, forKey: .membershipID) ?? ""
+        gymName = try container.decode(String.self, forKey: .gymName)
+        address = try container.decodeIfPresent(String.self, forKey: .address)
+        city = try container.decodeIfPresent(String.self, forKey: .city)
+        area = try container.decodeIfPresent(String.self, forKey: .area)
+        state = try container.decodeIfPresent(String.self, forKey: .state)
+        country = try container.decodeIfPresent(String.self, forKey: .country)
+        countryCode = try container.decodeIfPresent(String.self, forKey: .countryCode)
+        postalCode = try container.decodeIfPresent(String.self, forKey: .postalCode)
+        membershipType = try container.decodeIfPresent(String.self, forKey: .membershipType) ?? "member"
+        isPrimary = try container.decodeIfPresent(Bool.self, forKey: .isPrimary) ?? true
+        visibility = try container.decodeIfPresent(String.self, forKey: .visibility) ?? "members"
+        verificationStatus = try container.decode(String.self, forKey: .verificationStatus)
+    }
+
+    var locationText: String {
+        [area, city, country].compactMap { $0 }.joined(separator: ", ")
+    }
+
+    var membershipTypeTitle: String {
+        switch membershipType {
+        case "day_pass": "Day pass"
+        case "online": "Online"
+        case "coach": "Coach"
+        default: "Member"
+        }
     }
 }
 
@@ -202,6 +332,8 @@ struct CommunityMember: Codable, Hashable, Identifiable {
     var gymName: String?
     var area: String?
     var city: String?
+    var country: String?
+    var countryCode: String?
     var connectionStatus: ConnectionStatus
 
     var id: String { userID }
@@ -217,6 +349,8 @@ struct CommunityMember: Codable, Hashable, Identifiable {
         case gymName = "gym_name"
         case area
         case city
+        case country
+        case countryCode = "country_code"
         case connectionStatus = "connection_status"
     }
 
@@ -231,6 +365,8 @@ struct CommunityMember: Codable, Hashable, Identifiable {
         gymName: String?,
         area: String?,
         city: String?,
+        country: String? = nil,
+        countryCode: String? = nil,
         connectionStatus: ConnectionStatus
     ) {
         self.userID = userID
@@ -243,6 +379,8 @@ struct CommunityMember: Codable, Hashable, Identifiable {
         self.gymName = gymName
         self.area = area
         self.city = city
+        self.country = country
+        self.countryCode = countryCode
         self.connectionStatus = connectionStatus
     }
 
@@ -258,6 +396,8 @@ struct CommunityMember: Codable, Hashable, Identifiable {
         gymName = try container.decodeIfPresent(String.self, forKey: .gymName)
         area = try container.decodeIfPresent(String.self, forKey: .area)
         city = try container.decodeIfPresent(String.self, forKey: .city)
+        country = try container.decodeIfPresent(String.self, forKey: .country)
+        countryCode = try container.decodeIfPresent(String.self, forKey: .countryCode)
         let rawStatus = try container.decodeIfPresent(String.self, forKey: .connectionStatus)
         connectionStatus = ConnectionStatus(rawValue: rawStatus ?? "") ?? .none
     }
@@ -276,6 +416,8 @@ struct CommunityPublicProfile: Codable, Hashable {
     var gymName: String?
     var city: String?
     var area: String?
+    var country: String?
+    var countryCode: String?
     var connectionStatus: ConnectionStatus
     var sharedGym: Bool
     var sharedArea: Bool
@@ -293,6 +435,8 @@ struct CommunityPublicProfile: Codable, Hashable {
         case gymName = "gym_name"
         case city
         case area
+        case country
+        case countryCode = "country_code"
         case connectionStatus = "connection_status"
         case sharedGym = "shared_gym"
         case sharedArea = "shared_area"
@@ -312,6 +456,8 @@ struct CommunityPublicProfile: Codable, Hashable {
         gymName = try container.decodeIfPresent(String.self, forKey: .gymName)
         city = try container.decodeIfPresent(String.self, forKey: .city)
         area = try container.decodeIfPresent(String.self, forKey: .area)
+        country = try container.decodeIfPresent(String.self, forKey: .country)
+        countryCode = try container.decodeIfPresent(String.self, forKey: .countryCode)
         let rawStatus = try container.decodeIfPresent(String.self, forKey: .connectionStatus)
         connectionStatus = ConnectionStatus(rawValue: rawStatus ?? "") ?? .none
         sharedGym = try container.decodeIfPresent(Bool.self, forKey: .sharedGym) ?? false
@@ -339,12 +485,22 @@ struct GymSummary: Codable, Hashable, Identifiable {
     var id: String
     var name: String
     var address: String?
-    var city: String
+    var city: String?
     var state: String?
     var country: String?
+    var countryCode: String?
     var area: String?
+    var postalCode: String?
+    var latitude: Double?
+    var longitude: Double?
+    var website: String?
+    var phone: String?
+    var source: String
+    var providerName: String?
     var verificationStatus: String
     var memberCount: Int
+    var distanceKm: Double?
+    var lastVerifiedAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -353,9 +509,19 @@ struct GymSummary: Codable, Hashable, Identifiable {
         case city
         case state
         case country
+        case countryCode = "country_code"
         case area
+        case postalCode = "postal_code"
+        case latitude
+        case longitude
+        case website
+        case phone
+        case source
+        case providerName = "provider_name"
         case verificationStatus = "verification_status"
         case memberCount = "member_count"
+        case distanceKm = "distance_km"
+        case lastVerifiedAt = "last_verified_at"
     }
 
     init(from decoder: Decoder) throws {
@@ -363,13 +529,74 @@ struct GymSummary: Codable, Hashable, Identifiable {
         id = try container.decode(String.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         address = try container.decodeIfPresent(String.self, forKey: .address)
-        city = try container.decode(String.self, forKey: .city)
+        city = try container.decodeIfPresent(String.self, forKey: .city)
         state = try container.decodeIfPresent(String.self, forKey: .state)
         country = try container.decodeIfPresent(String.self, forKey: .country)
+        countryCode = try container.decodeIfPresent(String.self, forKey: .countryCode)
         area = try container.decodeIfPresent(String.self, forKey: .area)
-        verificationStatus = try container.decode(String.self, forKey: .verificationStatus)
+        postalCode = try container.decodeIfPresent(String.self, forKey: .postalCode)
+        latitude = try container.decodeIfPresent(Double.self, forKey: .latitude)
+        longitude = try container.decodeIfPresent(Double.self, forKey: .longitude)
+        website = try container.decodeIfPresent(String.self, forKey: .website)
+        phone = try container.decodeIfPresent(String.self, forKey: .phone)
+        source = try container.decodeIfPresent(String.self, forKey: .source) ?? "forma"
+        providerName = try container.decodeIfPresent(String.self, forKey: .providerName)
+        verificationStatus = try container.decodeIfPresent(String.self, forKey: .verificationStatus) ?? "pending"
         memberCount = try container.decodeIfPresent(Int.self, forKey: .memberCount) ?? 0
+        distanceKm = try container.decodeIfPresent(Double.self, forKey: .distanceKm)
+        lastVerifiedAt = try container.decodeIfPresent(Date.self, forKey: .lastVerifiedAt)
     }
+
+    var isVerified: Bool { verificationStatus == "verified" }
+    var isImported: Bool { verificationStatus == "imported" }
+
+    var statusTitle: String {
+        switch verificationStatus {
+        case "verified": "Verified"
+        case "imported": "Directory listing"
+        default: "Awaiting review"
+        }
+    }
+
+    var locationText: String {
+        [area, city, state, country].compactMap { $0 }.joined(separator: ", ")
+    }
+
+    var distanceText: String? {
+        guard let distanceKm else { return nil }
+        if distanceKm < 1 {
+            return "\(Int((distanceKm * 1000).rounded())) m away"
+        }
+        return String(format: "%.1f km away", distanceKm)
+    }
+}
+
+struct GymProviderStatus: Codable, Hashable {
+    var configured: Bool
+    var name: String?
+    var reason: String?
+    var attribution: String?
+
+    enum CodingKeys: String, CodingKey {
+        case configured
+        case name
+        case reason
+        case attribution
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        configured = try container.decodeIfPresent(Bool.self, forKey: .configured) ?? false
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        reason = try container.decodeIfPresent(String.self, forKey: .reason)
+        attribution = try container.decodeIfPresent(String.self, forKey: .attribution)
+    }
+}
+
+struct GymJoinOptions: Encodable {
+    var isPrimary: Bool
+    var membershipType: String
+    var visibility: String
 }
 
 struct GymRequestResult: Codable, Hashable {
@@ -717,12 +944,31 @@ struct CommunityReportResult: Codable, Hashable {
     var status: String
 }
 
+enum GymReportReason: String, CaseIterable, Identifiable, Hashable {
+    case incorrectDetails = "incorrect_details"
+    case spam
+    case inappropriate
+    case other
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .incorrectDetails: "Incorrect gym information"
+        case .spam: "Spam or advertising"
+        case .inappropriate: "Inappropriate content"
+        case .other: "Something else"
+        }
+    }
+}
+
 // MARK: - Bootstrap
 
 struct CommunityBootstrap: Codable, Hashable {
     var profile: CommunityProfile?
     var preferences: CommunityPreferences?
     var membership: CommunityMembership?
+    var memberships: [CommunityMembership]
     var isAdmin: Bool
     var suspended: Bool
     var membersAtGym: Int
@@ -741,6 +987,7 @@ struct CommunityBootstrap: Codable, Hashable {
         case profile
         case preferences
         case membership
+        case memberships
         case isAdmin = "is_admin"
         case suspended
         case membersAtGym = "members_at_gym"
@@ -761,6 +1008,13 @@ struct CommunityBootstrap: Codable, Hashable {
         profile = try container.decodeIfPresent(CommunityProfile.self, forKey: .profile)
         preferences = try container.decodeIfPresent(CommunityPreferences.self, forKey: .preferences)
         membership = try container.decodeIfPresent(CommunityMembership.self, forKey: .membership)
+        if let rows = try container.decodeIfPresent([CommunityMembership].self, forKey: .memberships) {
+            memberships = rows
+        } else if let membership {
+            memberships = [membership]
+        } else {
+            memberships = []
+        }
         isAdmin = try container.decodeIfPresent(Bool.self, forKey: .isAdmin) ?? false
         suspended = try container.decodeIfPresent(Bool.self, forKey: .suspended) ?? false
         membersAtGym = try container.decodeIfPresent(Int.self, forKey: .membersAtGym) ?? 0
@@ -806,7 +1060,7 @@ struct CommunityModerationReport: Codable, Hashable, Identifiable {
 struct CommunityAdminGym: Codable, Hashable, Identifiable {
     var id: String
     var name: String
-    var city: String
+    var city: String?
     var area: String?
     var address: String?
     var verificationStatus: String

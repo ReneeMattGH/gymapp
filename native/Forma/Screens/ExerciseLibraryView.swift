@@ -53,8 +53,8 @@ struct ExerciseLibraryView: View {
                 if filtered.isEmpty {
                     FormaEmptyState(
                         systemImage: "magnifyingglass",
-                        title: onlyFavorites && !hasQueryOnly ? "No favourites yet" : "No matches",
-                        message: onlyFavorites && !hasQueryOnly
+                        title: favoritesOnlyActive ? "No favourites yet" : "No matches",
+                        message: favoritesOnlyActive
                             ? "Tap the star on any exercise to keep it close."
                             : "Try a different search or clear the filters."
                     )
@@ -96,7 +96,9 @@ struct ExerciseLibraryView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
     }
 
-    private var hasQueryOnly: Bool { query.isEmpty && selectedCategory == nil && selectedMuscle == nil }
+    private var favoritesOnlyActive: Bool {
+        onlyFavorites && query.isEmpty && selectedCategory == nil && selectedMuscle == nil
+    }
 
     private var searchRow: some View {
         HStack(spacing: Spacing.sm) {
@@ -226,7 +228,7 @@ struct ExerciseLibraryView: View {
             } label: {
                 Image(systemName: model.favoriteExercises.contains(exercise.id) ? "star.fill" : "star")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(model.favoriteExercises.contains(exercise.id) ? palette.accent : palette.textTertiary)
+                    .foregroundStyle(model.favoriteExercises.contains(exercise.id) ? palette.accentText : palette.textTertiary)
                     .frame(width: 36, height: 36)
             }
             .accessibilityLabel(model.favoriteExercises.contains(exercise.id) ? "Remove favourite" : "Add favourite")
@@ -300,7 +302,7 @@ struct ExerciseDetailView: View {
                         model.toggleFavorite(exercise.id)
                     } label: {
                         Image(systemName: model.favoriteExercises.contains(exercise.id) ? "star.fill" : "star")
-                            .foregroundStyle(model.favoriteExercises.contains(exercise.id) ? palette.accent : palette.textSecondary)
+                            .foregroundStyle(model.favoriteExercises.contains(exercise.id) ? palette.accentText : palette.textSecondary)
                     }
                     .accessibilityLabel(model.favoriteExercises.contains(exercise.id) ? "Remove favourite" : "Add favourite")
                 }

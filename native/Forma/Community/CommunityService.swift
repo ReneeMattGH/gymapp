@@ -6,11 +6,33 @@ import Foundation
 /// admin checks are all enforced server-side.
 protocol CommunityServicing: AnyObject {
     func communityBootstrap() async throws -> CommunityBootstrap
-    func communityDiscover(scope: CommunityScope, query: String, interest: String, limit: Int, offset: Int) async throws -> [CommunityMember]
-    func communitySearchGyms(query: String, limit: Int, offset: Int) async throws -> [GymSummary]
-    func communityRequestGym(name: String, city: String, area: String?, address: String?) async throws -> GymRequestResult
-    func communityJoinGym(id: String) async throws
+    func communityDiscover(
+        scope: CommunityScope,
+        query: String,
+        interest: String,
+        country: String,
+        city: String,
+        gymID: String?,
+        limit: Int,
+        offset: Int
+    ) async throws -> [CommunityMember]
+    func communitySearchGyms(
+        query: String,
+        country: String,
+        city: String,
+        area: String,
+        postalCode: String,
+        limit: Int,
+        offset: Int
+    ) async throws -> [GymSummary]
+    func communityNearbyGyms(latitude: Double, longitude: Double, radiusKm: Int, limit: Int) async throws -> [GymSummary]
+    func communityGymDetails(id: String) async throws -> GymSummary
+    func communityGymProviderStatus() async throws -> GymProviderStatus
+    func communityRequestGym(name: String, city: String, area: String?, address: String?, state: String?, country: String?, postalCode: String?) async throws -> GymRequestResult
+    func communityJoinGym(id: String, isPrimary: Bool, membershipType: String, visibility: String) async throws
+    func communityRemoveGymMembership(id: String) async throws
     func communityLeaveGym() async throws
+    func communityReportGym(id: String, reason: GymReportReason, details: String?) async throws -> CommunityReportResult
     func communitySetArea(city: String, area: String) async throws
     func communitySaveProfile(username: String, displayName: String, bio: String?, interests: [String], categories: [String], avatarURL: String?, age: Int?) async throws -> CommunityProfile
     func communityUploadAvatar(data: Data) async throws -> String

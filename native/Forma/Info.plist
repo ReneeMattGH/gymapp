@@ -72,6 +72,10 @@
 	<string>Forma uses the camera for on-device exercise form analysis. Video frames are processed in memory with Apple Vision and are never uploaded or saved.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Forma connects to the gym community backend on your local network while you develop or self-host it. Nothing on your local network is scanned or shared.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Forma uses your location only when you tap “Find gyms near me” to show gyms within the radius you choose. It is never shared with other members.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

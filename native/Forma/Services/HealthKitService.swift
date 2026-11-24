@@ -60,11 +60,22 @@ final class HealthKitService {
 
     /// Fetches the last `days` of activity. Returns nil values when no samples exist.
     func fetchSummary(days: Int = 7) async throws -> HealthSummary {
+        let end = Date()
+        let start = Calendar.current.date(byAdding: .day, value: -max(1, days), to: end) ?? end
+        return try await summary(from: start, to: end)
+    }
+
+    /// Fetches only today's samples, for the dashboard's today's-performance card.
+    func fetchToday() async throws -> HealthSummary {
+        let end = Date()
+        let start = Calendar.current.startOfDay(for: end)
+        return try await summary(from: start, to: end)
+    }
+
+    private func summary(from start: Date, to end: Date) async throws -> HealthSummary {
         guard HKHealthStore.isHealthDataAvailable() else {
             throw FormaError.message("HealthKit is not available on this device.")
         }
-        let end = Date()
-        let start = Calendar.current.date(byAdding: .day, value: -max(1, days), to: end) ?? end
         let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: .strictStartDate)
 
         async let workouts = fetchWorkouts(predicate: predicate)

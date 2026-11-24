@@ -15,6 +15,20 @@ const configSchema = z.object({
   COMMUNITY_ADMIN_EMAILS: z.string().default(''),
   UPLOAD_DIR: z.string().min(1).default('./uploads'),
   PUBLIC_BASE_URL: z.string().url().optional(),
+  // Gym directory provider. `auto` uses Google Places when a key is present
+  // and the OpenStreetMap Overpass provider otherwise.
+  GYM_PROVIDER: z.enum(['auto', 'google', 'osm', 'none']).default('auto'),
+  GOOGLE_PLACES_API_KEY: z.string().trim().optional(),
+  OSM_OVERPASS_URL: z.string().url().default('https://overpass-api.de/api/interpreter'),
+  // Global name search through public Overpass is expensive; it stays off
+  // until a deployment either self-hosts Overpass or accepts the public cost.
+  OSM_TEXT_SEARCH: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  GYM_PROVIDER_CACHE_TTL_HOURS: z.coerce.number().int().positive().default(24),
+  GYM_PROVIDER_MIN_INTERVAL_MS: z.coerce.number().int().min(0).default(1100),
+  GYM_PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().default(12000),
   AUTO_MIGRATE: z
     .enum(['true', 'false'])
     .default('true')
@@ -37,6 +51,13 @@ export interface Config {
   communityAdminEmails: string[];
   uploadDir: string;
   publicBaseUrl?: string;
+  gymProvider: 'auto' | 'google' | 'osm' | 'none';
+  googlePlacesApiKey?: string;
+  osmOverpassUrl: string;
+  osmTextSearch: boolean;
+  gymProviderCacheTtlHours: number;
+  gymProviderMinIntervalMs: number;
+  gymProviderTimeoutMs: number;
   autoMigrate: boolean;
   trustProxy: number;
   logLevel: string;
@@ -69,6 +90,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       .filter(Boolean),
     uploadDir: value.UPLOAD_DIR,
     ...(value.PUBLIC_BASE_URL ? { publicBaseUrl: value.PUBLIC_BASE_URL.replace(/\/+$/, '') } : {}),
+    gymProvider: value.GYM_PROVIDER,
+    ...(value.GOOGLE_PLACES_API_KEY ? { googlePlacesApiKey: value.GOOGLE_PLACES_API_KEY } : {}),
+    osmOverpassUrl: value.OSM_OVERPASS_URL,
+    osmTextSearch: value.OSM_TEXT_SEARCH,
+    gymProviderCacheTtlHours: value.GYM_PROVIDER_CACHE_TTL_HOURS,
+    gymProviderMinIntervalMs: value.GYM_PROVIDER_MIN_INTERVAL_MS,
+    gymProviderTimeoutMs: value.GYM_PROVIDER_TIMEOUT_MS,
     autoMigrate: value.AUTO_MIGRATE,
     trustProxy: value.TRUST_PROXY,
     logLevel: value.LOG_LEVEL,

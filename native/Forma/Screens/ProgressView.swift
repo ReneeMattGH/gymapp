@@ -1,17 +1,85 @@
 import Charts
 import SwiftUI
 
-struct ProgressView: View {
+struct ProgressScreen: View {
     @Environment(AppModel.self) private var model
     @Environment(\.formaPalette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showCheckIn = false
+    @State private var range: Range = .month
 
-    private var weeks: [TrainingStats.WeekCount] {
-        TrainingStats.lastWeeksCounts(model.sessions, weeks: 8)
+    private enum Range: String, CaseIterable, Identifiable {
+        case week, month, threeMonths, year
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .week: "1W"
+            case .month: "1M"
+            case .threeMonths: "3M"
+            case .year: "1Y"
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .week: "Sessions per day"
+            case .month, .threeMonths: "Sessions per week"
+            case .year: "Sessions per month"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .week: "Last seven days"
+            case .month: "Last four weeks"
+            case .threeMonths: "Last thirteen weeks"
+            case .year: "Last twelve months"
+            }
+        }
+
+        var days: Int {
+            switch self {
+            case .week: 7
+            case .month: 30
+            case .threeMonths: 90
+            case .year: 365
+            }
+        }
+    }
+
+    private struct ChartBucket: Identifiable {
+        let id: Date
+        let label: String
+        let value: Int
+    }
+
+    private var buckets: [ChartBucket] {
+        switch range {
+        case .week:
+            TrainingStats.lastDaysCounts(model.sessions, days: 7)
+                .map { ChartBucket(id: $0.start, label: $0.label, value: $0.value) }
+        case .month:
+            TrainingStats.lastWeeksCounts(model.sessions, weeks: 4)
+                .map { ChartBucket(id: $0.start, label: $0.label, value: $0.value) }
+        case .threeMonths:
+            TrainingStats.lastWeeksCounts(model.sessions, weeks: 13)
+                .map { ChartBucket(id: $0.start, label: $0.label, value: $0.value) }
+        case .year:
+            TrainingStats.lastMonthsCounts(model.sessions, months: 12)
+                .map { ChartBucket(id: $0.start, label: $0.label, value: $0.value) }
+        }
     }
 
     private var sessionPoints: [WorkoutSession] {
-        Array(model.completedSessions.sorted { $0.startedAt < $1.startedAt }.suffix(10))
+        let cutoff = Calendar.current.date(byAdding: .day, value: -range.days, to: Date()) ?? .distantPast
+        return Array(
+            model.completedSessions
+                .filter { $0.startedAt >= cutoff }
+                .sorted { $0.startedAt < $1.startedAt }
+                .suffix(40)
+        )
     }
 
     private var weightRecords: [ProgressRecord] {
@@ -40,6 +108,7 @@ struct ProgressView: View {
                         subtitle: "Charts use only sessions and sets you have actually logged."
                     )
                     statGrid
+                    rangeChips
                     weeklyChart
                     repsChart
                     checkInSection
@@ -76,32 +145,62 @@ struct ProgressView: View {
 
     // MARK: - Charts
 
+    private var rangeChips: some View {
+        HStack(spacing: Spacing.sm) {
+            ForEach(Range.allCases) { option in
+                FormaChip(label: option.label, selected: range == option) {
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                        range = option
+                    }
+                }
+                .accessibilityLabel(Self.accessibilityLabel(for: option))
+                .accessibilityAddTraits(range == option ? .isSelected : [])
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Chart time range")
+    }
+
+    private static func accessibilityLabel(for range: Range) -> String {
+        switch range {
+        case .week: "One week"
+        case .month: "One month"
+        case .threeMonths: "Three months"
+        case .year: "One year"
+        }
+    }
+
     private var weeklyChart: some View {
         chartCard(
-            title: "Sessions per week",
-            subtitle: "Last eight weeks",
-            empty: model.completedSessions.isEmpty,
+            title: range.title,
+            subtitle: range.subtitle,
+            empty: buckets.allSatisfy { $0.value == 0 },
             emptyMessage: "Finish a session to start the chart."
         ) {
-            Chart(weeks) { week in
+            Chart(buckets) { bucket in
                 BarMark(
-                    x: .value("Week", week.label),
-                    y: .value("Sessions", week.value)
+                    x: .value("Period", bucket.label),
+                    y: .value("Sessions", bucket.value)
                 )
                 .foregroundStyle(
-                    LinearGradient(colors: [Color(hex: 0xD8FF76), Color(hex: 0xAEEB3E)], startPoint: .top, endPoint: .bottom)
+                    LinearGradient(
+                        colors: [palette.accentText, palette.accentText.opacity(0.6)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
                 )
                 .cornerRadius(4)
             }
             .chartYAxis {
                 AxisMarks(position: .leading) { _ in
                     AxisGridLine().foregroundStyle(palette.border)
-                    AxisValueLabel().foregroundStyle(palette.textTertiary)
+                    AxisValueLabel().foregroundStyle(palette.textSecondary)
                 }
             }
             .chartXAxis {
                 AxisMarks { _ in
-                    AxisValueLabel().foregroundStyle(palette.textTertiary)
+                    AxisValueLabel().foregroundStyle(palette.textSecondary)
                 }
             }
             .frame(height: 160)
@@ -111,7 +210,7 @@ struct ProgressView: View {
     private var repsChart: some View {
         chartCard(
             title: "Reps per session",
-            subtitle: "Last ten sessions",
+            subtitle: range.subtitle,
             empty: sessionPoints.isEmpty,
             emptyMessage: "Your logged reps will appear here."
         ) {
@@ -121,17 +220,17 @@ struct ProgressView: View {
                     x: .value("Date", session.startedAt),
                     y: .value("Reps", reps)
                 )
-                .interpolationMethod(.catmullRom)
+                .interpolationMethod(.monotone)
                 .foregroundStyle(palette.accentText)
                 .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
                 AreaMark(
                     x: .value("Date", session.startedAt),
                     y: .value("Reps", reps)
                 )
-                .interpolationMethod(.catmullRom)
+                .interpolationMethod(.monotone)
                 .foregroundStyle(
                     LinearGradient(
-                        colors: [palette.accent.opacity(0.24), palette.accent.opacity(0.02)],
+                        colors: [palette.accentText.opacity(0.22), palette.accentText.opacity(0.02)],
                         startPoint: .top,
                         endPoint: .bottom
                     )
@@ -140,18 +239,18 @@ struct ProgressView: View {
                     x: .value("Date", session.startedAt),
                     y: .value("Reps", reps)
                 )
-                .foregroundStyle(palette.accent)
+                .foregroundStyle(palette.accentText)
                 .symbolSize(24)
             }
             .chartYAxis {
                 AxisMarks(position: .leading) { _ in
                     AxisGridLine().foregroundStyle(palette.border)
-                    AxisValueLabel().foregroundStyle(palette.textTertiary)
+                    AxisValueLabel().foregroundStyle(palette.textSecondary)
                 }
             }
             .chartXAxis {
                 AxisMarks(values: .automatic(desiredCount: 4)) { _ in
-                    AxisValueLabel(format: .dateTime.day().month(.abbreviated)).foregroundStyle(palette.textTertiary)
+                    AxisValueLabel(format: .dateTime.day().month(.abbreviated)).foregroundStyle(palette.textSecondary)
                 }
             }
             .frame(height: 150)
@@ -173,17 +272,17 @@ struct ProgressView: View {
                     .foregroundStyle(palette.text)
                 Spacer()
                 Text(subtitle)
-                    .font(FormaFont.bodyFont(10.5))
-                    .foregroundStyle(palette.textTertiary)
+                    .font(FormaFont.bodyFont(11.5, weight: .medium))
+                    .foregroundStyle(palette.textSecondary)
             }
             if empty {
                 VStack(spacing: 6) {
                     Image(systemName: "chart.bar")
                         .font(.system(size: 20))
-                        .foregroundStyle(palette.textTertiary)
+                        .foregroundStyle(palette.textSecondary)
                     Text(emptyMessage)
                         .font(FormaFont.bodyFont(11.5))
-                        .foregroundStyle(palette.textTertiary)
+                        .foregroundStyle(palette.textSecondary)
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 120)
@@ -290,7 +389,7 @@ struct ProgressView: View {
                     x: .value("Date", record.recordedAt),
                     y: .value("Weight", value)
                 )
-                .foregroundStyle(palette.accent)
+                .foregroundStyle(palette.accentText)
                 .symbolSize(22)
             }
             .chartYScale(domain: .automatic(includesZero: false))

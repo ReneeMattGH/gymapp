@@ -1,10 +1,12 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Logger } from 'pino';
 import type { Pool, PoolClient } from 'pg';
 import type { Config } from '../config.js';
-import { badRequest, forbidden, notFound } from '../errors.js';
+import { badRequest, forbidden, notFound, serviceUnavailable } from '../errors.js';
+import { normalizeCountry } from './countries.js';
+import { createGymProvider, providerStatus, type GymProvider, type ProviderGym } from './gymProvider.js';
 
 /** Every method is called with the authenticated session user, never a client id. */
 export interface CommunityViewer {
@@ -42,6 +44,36 @@ function clean(value: string | null | undefined): string {
   return (value ?? '').trim();
 }
 
+/** Mirrors the SQL gym_normalize() helper so query and column agree. */
+function normalizeGymName(value: string | null | undefined): string {
+  return (value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function searchTokens(query: string): string[] {
+  return normalizeGymName(query)
+    .split(' ')
+    .filter((token) => token.length > 0)
+    .slice(0, 6);
+}
+
+const RADIUS_KM = new Set([2, 5, 10, 25, 50]);
+
+function radiusKm(value: number | undefined): number {
+  const rounded = Math.round(value ?? 5);
+  return RADIUS_KM.has(rounded) ? rounded : Math.min(Math.max(rounded, 1), 100);
+}
+
+function coordinate(value: number | undefined, limit: number): number {
+  if (value === undefined || !Number.isFinite(value) || Math.abs(value) > limit) {
+    throw badRequest('invalid_location', 'The search location is not valid.');
+  }
+  return value;
+}
+
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -51,8 +83,12 @@ export function createCommunityService(options: {
   config: Config;
   realtime: CommunityRealtime;
   logger: Logger;
+  /** Injected in tests; otherwise created from configuration. */
+  gymProvider?: GymProvider | null;
 }) {
   const { pool, config, realtime, logger } = options;
+  const gymProvider = options.gymProvider === undefined ? createGymProvider(config) : options.gymProvider;
+  const gymProviderInfo = providerStatus(config, gymProvider);
 
   const adminEmailSet = new Set(config.communityAdminEmails.map((email) => email.toLowerCase()));
 
@@ -120,29 +156,84 @@ export function createCommunityService(options: {
     cp.interests, cp.workout_categories, cp.achievements_opt_in,
     cp.created_at, cp.updated_at`;
 
-  async function discover(
-    viewer: CommunityViewer,
-    scope: string,
-    query: string,
-    interest: string,
-    limitInput: number | undefined,
-    offsetInput: number | undefined,
-  ): Promise<Row[]> {
-    const limit = clamp(limitInput, 20, 50);
-    const offset = offsetOf(offsetInput);
+  interface DiscoverOptions {
+    scope: string;
+    query?: string;
+    interest?: string;
+    country?: string;
+    city?: string;
+    gymId?: string | null;
+    limit?: number;
+    offset?: number;
+  }
+
+  function normalizedCountryFilter(value: string | undefined): string {
+    const raw = clean(value);
+    if (raw === '') return '';
+    return normalizeCountry(raw).code ?? raw;
+  }
+
+  function validGymId(value: string | null | undefined): string | null {
+    const raw = clean(value);
+    if (raw === '') return null;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) {
+      throw badRequest('invalid_gym', 'That gym was not recognized.');
+    }
+    return raw;
+  }
+
+  async function discover(viewer: CommunityViewer, options: DiscoverOptions): Promise<Row[]> {
+    const limit = clamp(options.limit, 20, 50);
+    const offset = offsetOf(options.offset);
+    const scope = (clean(options.scope) || 'gym').toLowerCase();
     const result = await pool.query<Row>(
-      `WITH eligible AS (
+      `WITH me AS (
+         SELECT coalesce((SELECT city FROM community_preferences WHERE user_id = $1), '') AS my_city,
+                coalesce((SELECT country_code FROM community_preferences WHERE user_id = $1), '') AS my_country,
+                coalesce((SELECT g.state
+                            FROM gym_memberships gm
+                            JOIN gyms g ON g.id = gm.gym_id
+                           WHERE gm.user_id = $1 AND coalesce(g.state, '') <> ''
+                           ORDER BY gm.is_primary DESC, gm.created_at
+                           LIMIT 1), '') AS my_state
+       ),
+       eligible AS (
          SELECT cp.user_id, cp.username, cp.display_name, cp.avatar_url, cp.bio,
                 cp.interests, cp.workout_categories,
-                CASE WHEN pref.show_gym THEN g.name END AS gym_name,
+                CASE WHEN pref.show_gym AND coalesce(mem.visibility, 'members') <> 'private'
+                     THEN g.name END AS gym_name,
                 CASE WHEN pref.show_area THEN pref.area END AS area,
-                CASE WHEN pref.show_area THEN pref.city END AS city,
-                community_same_gym($1, cp.user_id) AS shares_gym,
-                community_area_compatible($1, cp.user_id) AS shares_area
+                CASE WHEN pref.show_city THEN pref.city END AS city,
+                CASE WHEN pref.show_gym AND coalesce(mem.visibility, 'members') <> 'private'
+                     THEN g.state END AS region,
+                CASE WHEN pref.show_country THEN coalesce(pref.country, g.country) END AS country,
+                CASE WHEN pref.show_country THEN coalesce(pref.country_code, g.country_code) END AS country_code,
+                (pref.show_gym AND EXISTS (
+                   SELECT 1 FROM gym_memberships mine
+                   JOIN gym_memberships theirs ON theirs.gym_id = mine.gym_id
+                   WHERE mine.user_id = $1 AND theirs.user_id = cp.user_id
+                     AND theirs.visibility <> 'private'
+                 )) AS shares_gym,
+                community_area_compatible($1, cp.user_id) AS shares_area,
+                (coalesce(pref.city, '') <> ''
+                  AND lower(pref.city) = lower((SELECT my_city FROM me))) AS shares_city,
+                (pref.show_gym AND coalesce(mem.visibility, 'members') <> 'private'
+                  AND coalesce(g.state, '') <> ''
+                  AND (SELECT my_state FROM me) <> ''
+                  AND lower(g.state) = lower((SELECT my_state FROM me))) AS shares_region,
+                (coalesce(pref.country_code, '') <> ''
+                  AND upper(pref.country_code) = upper((SELECT my_country FROM me))) AS shares_country,
+                pref.show_gym AS shows_gym
          FROM community_profiles cp
          JOIN community_preferences pref ON pref.user_id = cp.user_id
-         LEFT JOIN gym_memberships gm ON gm.user_id = cp.user_id
-         LEFT JOIN gyms g ON g.id = gm.gym_id
+         LEFT JOIN LATERAL (
+           SELECT gm.gym_id, gm.visibility
+             FROM gym_memberships gm
+            WHERE gm.user_id = cp.user_id
+            ORDER BY gm.is_primary DESC, gm.created_at
+            LIMIT 1
+         ) mem ON true
+         LEFT JOIN gyms g ON g.id = mem.gym_id
          WHERE cp.user_id <> $1
            AND pref.discoverable
            AND NOT community_is_suspended(cp.user_id)
@@ -150,32 +241,78 @@ export function createCommunityService(options: {
            AND community_not_blocked($1, cp.user_id)
            AND community_age_compatible($1, cp.user_id)
            AND (
-             ($2 = 'gym' AND pref.show_gym AND community_same_gym($1, cp.user_id))
+             ($2 = 'gym' AND pref.show_gym AND EXISTS (
+                SELECT 1 FROM gym_memberships mine
+                JOIN gym_memberships theirs ON theirs.gym_id = mine.gym_id
+                WHERE mine.user_id = $1 AND theirs.user_id = cp.user_id
+                  AND theirs.visibility <> 'private'
+              ))
              OR ($2 = 'area' AND pref.show_area AND pref.nearby_discovery
                  AND community_area_compatible($1, cp.user_id))
-             OR $2 = 'all'
+             OR ($2 = 'city' AND pref.show_city AND coalesce(pref.city, '') <> ''
+                 AND lower(pref.city) = lower((SELECT my_city FROM me)))
+             OR ($2 = 'region' AND pref.show_gym
+                 AND coalesce(mem.visibility, 'members') <> 'private'
+                 AND coalesce(g.state, '') <> ''
+                 AND (SELECT my_state FROM me) <> ''
+                 AND lower(g.state) = lower((SELECT my_state FROM me)))
+             OR ($2 = 'country' AND pref.show_country AND coalesce(pref.country_code, '') <> ''
+                 AND upper(pref.country_code) = upper((SELECT my_country FROM me)))
+             OR ($2 IN ('global', 'all') AND pref.global_discovery)
            )
        )
        SELECT e.user_id, e.username, e.display_name, e.avatar_url, e.bio,
               e.interests, e.workout_categories, e.gym_name, e.area, e.city,
+              e.region, e.country, e.country_code,
               community_connection_status($1, e.user_id) AS connection_status
        FROM eligible e
        WHERE (
-           trim($3) = ''
-           OR lower(e.username) LIKE '%' || lower(trim($3)) || '%'
-           OR lower(e.display_name) LIKE '%' || lower(trim($3)) || '%'
-           OR lower(coalesce(e.gym_name, '')) LIKE '%' || lower(trim($3)) || '%'
-           OR lower(coalesce(e.area, '')) LIKE '%' || lower(trim($3)) || '%'
-           OR lower(coalesce(e.city, '')) LIKE '%' || lower(trim($3)) || '%'
+           $3::text[] = '{}' OR NOT EXISTS (
+             SELECT 1 FROM unnest($3::text[]) AS token
+             WHERE NOT (
+               lower(e.username) LIKE '%' || token || '%'
+               OR lower(e.display_name) LIKE '%' || token || '%'
+               OR lower(coalesce(e.gym_name, '')) LIKE '%' || token || '%'
+               OR lower(coalesce(e.area, '')) LIKE '%' || token || '%'
+               OR lower(coalesce(e.city, '')) LIKE '%' || token || '%'
+               OR lower(coalesce(e.region, '')) LIKE '%' || token || '%'
+               OR lower(coalesce(e.country, '')) LIKE '%' || token || '%'
+             )
+           )
          )
          AND (
            trim($4) = ''
            OR EXISTS (SELECT 1 FROM unnest(e.interests) i WHERE lower(i) = lower(trim($4)))
            OR EXISTS (SELECT 1 FROM unnest(e.workout_categories) c WHERE lower(c) = lower(trim($4)))
          )
-       ORDER BY e.shares_gym DESC, e.shares_area DESC, lower(e.display_name)
-       LIMIT $5 OFFSET $6`,
-      [viewer.userId, scope.toLowerCase(), query, interest, limit, offset],
+         AND (
+           trim($5) = '' OR
+           (length(trim($5)) = 2 AND upper(coalesce(e.country_code, '')) = upper(trim($5)))
+           OR (length(trim($5)) <> 2 AND lower(coalesce(e.country, '')) = lower(trim($5)))
+         )
+         AND (trim($6) = '' OR lower(coalesce(e.city, '')) = lower(trim($6)))
+         AND (
+           $7::uuid IS NULL OR (
+             e.shows_gym AND EXISTS (
+               SELECT 1 FROM gym_memberships gm
+               WHERE gm.user_id = e.user_id AND gm.gym_id = $7::uuid
+             )
+           )
+         )
+       ORDER BY e.shares_gym DESC, e.shares_area DESC, e.shares_city DESC,
+                e.shares_region DESC, e.shares_country DESC, lower(e.display_name)
+       LIMIT $8 OFFSET $9`,
+      [
+        viewer.userId,
+        scope,
+        searchTokens(options.query ?? ''),
+        clean(options.interest),
+        normalizedCountryFilter(options.country),
+        clean(options.city),
+        validGymId(options.gymId),
+        limit,
+        offset,
+      ],
     );
     return result.rows;
   }
@@ -310,6 +447,215 @@ export function createCommunityService(options: {
     }
   }
 
+  // MARK: - Gym directory helpers
+
+  const gymColumns = `
+    g.id, g.name, g.address, g.city, g.state, g.country, g.country_code, g.area,
+    g.postal_code, g.latitude, g.longitude, g.website, g.phone, g.source,
+    g.provider_name, g.verification_status, g.last_verified_at,
+    (SELECT count(*)::int FROM gym_memberships gm WHERE gm.gym_id = g.id) AS member_count`;
+
+  async function providerCacheGet(key: string): Promise<ProviderGym[] | null> {
+    const cached = await pool.query<{ payload: ProviderGym[] }>(
+      'SELECT payload FROM gym_provider_cache WHERE cache_key = $1 AND expires_at > now()',
+      [key],
+    );
+    return cached.rows[0]?.payload ?? null;
+  }
+
+  async function providerCachePut(provider: string, key: string, payload: ProviderGym[]): Promise<void> {
+    await pool.query(
+      `INSERT INTO gym_provider_cache (cache_key, provider, payload, expires_at)
+       VALUES ($1, $2, $3, now() + make_interval(hours => $4))
+       ON CONFLICT (cache_key) DO UPDATE
+         SET payload = excluded.payload, expires_at = excluded.expires_at, created_at = now()`,
+      [key, provider, JSON.stringify(payload), config.gymProviderCacheTtlHours],
+    );
+  }
+
+  /**
+   * Stores provider results in the directory. Rows are matched first by the
+   * provider's own identifier, then by a normalized name plus either a nearby
+   * coordinate (<250m) or the same city and country, so the same gym seen from
+   * two sources does not become two records.
+   */
+  async function ingestProviderGyms(rows: ProviderGym[]): Promise<void> {
+    for (const row of rows.slice(0, 20)) {
+      if (!Number.isFinite(row.latitude) || !Number.isFinite(row.longitude)) continue;
+      const name = row.name.trim().slice(0, 120);
+      const normalized = normalizeGymName(name);
+      if (normalized.length < 2) continue;
+      const country = normalizeCountry(row.countryCode ?? row.country);
+      const city = row.city?.trim().slice(0, 80) || null;
+      const area = row.neighborhood?.trim().slice(0, 80) || null;
+      const state = row.region?.trim().slice(0, 80) || null;
+      const countryName = country.name ?? row.country?.trim().slice(0, 80) ?? null;
+      const countryCode = country.code;
+      const address = row.address?.trim().slice(0, 240) || null;
+      const postal = row.postalCode?.trim().slice(0, 24) || null;
+      const website = row.website?.trim().slice(0, 300) || null;
+      const phone = row.phone?.trim().slice(0, 40) || null;
+      const providerId = row.providerId.slice(0, 200);
+      const providerName = row.providerName;
+
+      const byProvider = await pool.query<{ id: string }>(
+        'SELECT id FROM gyms WHERE provider_name = $1 AND provider_id = $2',
+        [providerName, providerId],
+      );
+      if (byProvider.rows[0]) {
+        await pool.query(
+          `UPDATE gyms SET
+             name = $2, normalized_name = $3,
+             address = coalesce($4, address), city = coalesce($5, city),
+             area = coalesce($6, area), state = coalesce($7, state),
+             country = coalesce($8, country), country_code = coalesce($9, country_code),
+             postal_code = coalesce($10, postal_code),
+             latitude = $11, longitude = $12,
+             website = coalesce($13, website), phone = coalesce($14, phone),
+             last_verified_at = now(), updated_at = now()
+           WHERE id = $1`,
+          [byProvider.rows[0].id, name, normalized, address, city, area, state,
+           countryName, countryCode, postal, row.latitude, row.longitude, website, phone],
+        );
+        continue;
+      }
+
+      const duplicate = await pool.query<{ id: string }>(
+        `SELECT id FROM gyms
+          WHERE normalized_name = $1
+            AND (
+              (latitude IS NOT NULL AND longitude IS NOT NULL
+               AND (6371.0088 * 2 * asin(sqrt(
+                     power(sin(radians(latitude - $2) / 2), 2) +
+                     cos(radians($2)) * cos(radians(latitude)) *
+                     power(sin(radians(longitude - $3) / 2), 2)
+                   ))) < 0.25)
+              OR (
+                lower(coalesce(city, '')) = lower(coalesce($4, ''))
+                AND lower(coalesce(country_code, country, '')) = lower(coalesce($5, $6, ''))
+              )
+            )
+          LIMIT 1`,
+        [normalized, row.latitude, row.longitude, city, countryCode, countryName],
+      );
+      if (duplicate.rows[0]) {
+        await pool.query(
+          `UPDATE gyms SET
+             latitude = coalesce(latitude, $2), longitude = coalesce(longitude, $3),
+             last_verified_at = now(), updated_at = now()
+           WHERE id = $1`,
+          [duplicate.rows[0].id, row.latitude, row.longitude],
+        );
+        continue;
+      }
+
+      await pool.query(
+        `INSERT INTO gyms (
+           name, normalized_name, address, city, area, state, country, country_code,
+           postal_code, latitude, longitude, website, phone, provider_id, provider_name,
+           source, verification_status, last_verified_at, updated_at
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'imported',now(),now())
+         ON CONFLICT DO NOTHING`,
+        [name, normalized, address, city, area, state, countryName, countryCode,
+         postal, row.latitude, row.longitude, website, phone, providerId, providerName, providerName],
+      );
+    }
+  }
+
+  async function providerTextSearch(provider: GymProvider, query: string, limit: number): Promise<boolean> {
+    const key = `gym:${provider.name}:text:${createHash('sha256')
+      .update(normalizeGymName(query))
+      .digest('hex')
+      .slice(0, 32)}:${limit}`;
+    try {
+      const cached = await providerCacheGet(key);
+      if (cached) {
+        await ingestProviderGyms(cached);
+        return true;
+      }
+      const rows = await provider.searchText(query, limit);
+      await providerCachePut(provider.name, key, rows);
+      await ingestProviderGyms(rows);
+      return true;
+    } catch (error) {
+      logger.error(
+        { err: message(error), context: `gym provider ${provider.name} text search` },
+        'community operation failed',
+      );
+      return false;
+    }
+  }
+
+  async function providerNearbySearch(
+    provider: GymProvider,
+    latitude: number,
+    longitude: number,
+    radiusMeters: number,
+    limit: number,
+  ): Promise<boolean> {
+    const key = `gym:${provider.name}:nearby:${latitude.toFixed(3)},${longitude.toFixed(3)}:${radiusMeters}:${limit}`;
+    try {
+      const cached = await providerCacheGet(key);
+      if (cached) {
+        await ingestProviderGyms(cached);
+        return true;
+      }
+      const rows = await provider.searchNearby(latitude, longitude, radiusMeters, limit);
+      await providerCachePut(provider.name, key, rows);
+      await ingestProviderGyms(rows);
+      return true;
+    } catch (error) {
+      logger.error(
+        { err: message(error), context: `gym provider ${provider.name} nearby search` },
+        'community operation failed',
+      );
+      return false;
+    }
+  }
+
+  async function queryNearbyGyms(
+    viewer: CommunityViewer,
+    latitude: number,
+    longitude: number,
+    radius: number,
+    limit: number,
+  ): Promise<Row[]> {
+    const latDelta = radius / 111.32;
+    const lngDelta = radius / (111.32 * Math.max(Math.cos((latitude * Math.PI) / 180), 0.01));
+    const result = await pool.query<Row>(
+      `WITH candidates AS (
+         SELECT ${gymColumns},
+                6371.0088 * 2 * asin(sqrt(
+                  power(sin(radians(g.latitude - $1) / 2), 2) +
+                  cos(radians($1)) * cos(radians(g.latitude)) *
+                  power(sin(radians(g.longitude - $2) / 2), 2)
+                )) AS distance_km
+           FROM gyms g
+          WHERE g.latitude IS NOT NULL AND g.longitude IS NOT NULL
+            AND g.latitude BETWEEN $3 AND $4
+            AND g.longitude BETWEEN $5 AND $6
+            AND (g.verification_status IN ('verified', 'imported') OR g.submitted_by = $7 OR $8)
+       )
+       SELECT * FROM candidates
+        WHERE distance_km <= $9
+        ORDER BY distance_km, name
+        LIMIT $10`,
+      [
+        latitude,
+        longitude,
+        latitude - latDelta,
+        latitude + latDelta,
+        longitude - lngDelta,
+        longitude + lngDelta,
+        viewer.userId,
+        isAdmin(viewer),
+        radius,
+        limit,
+      ],
+    );
+    return result.rows;
+  }
+
   return {
     // MARK: - Bootstrap
 
@@ -329,8 +675,14 @@ export function createCommunityService(options: {
         pool.query<Row>(`SELECT ${profileColumns} FROM community_profiles cp WHERE cp.user_id = $1`, [userId]),
         pool.query<Row>('SELECT * FROM community_preferences WHERE user_id = $1', [userId]),
         pool.query<Row>(
-          `SELECT g.id AS gym_id, g.name AS gym_name, g.address, g.city, g.area, g.verification_status
-           FROM gym_memberships gm JOIN gyms g ON g.id = gm.gym_id WHERE gm.user_id = $1`,
+          `SELECT gm.id AS membership_id, gm.membership_type, gm.is_primary, gm.visibility,
+                  g.id AS gym_id, g.name AS gym_name, g.address, g.city, g.area,
+                  g.state, g.country, g.country_code, g.postal_code,
+                  g.latitude, g.longitude, g.verification_status
+             FROM gym_memberships gm
+             JOIN gyms g ON g.id = gm.gym_id
+            WHERE gm.user_id = $1
+            ORDER BY gm.is_primary DESC, gm.created_at`,
           [userId],
         ),
         pool.query<{ suspended: boolean; age_band: string }>(
@@ -348,7 +700,12 @@ export function createCommunityService(options: {
                  AND NOT community_is_suspended($1)
                  AND community_not_blocked($1, cp.user_id)
                  AND community_age_compatible($1, cp.user_id)
-                 AND community_same_gym($1, cp.user_id)) AS gym_count,
+                 AND EXISTS (
+                   SELECT 1 FROM gym_memberships mine
+                   JOIN gym_memberships theirs ON theirs.gym_id = mine.gym_id
+                   WHERE mine.user_id = $1 AND theirs.user_id = cp.user_id
+                     AND theirs.visibility <> 'private'
+                 )) AS gym_count,
              (SELECT count(*)::int
                 FROM community_profiles cp
                 JOIN community_preferences pref ON pref.user_id = cp.user_id
@@ -395,8 +752,8 @@ export function createCommunityService(options: {
         pool.query<Row>('SELECT city, area, nearby_group FROM community_areas ORDER BY area'),
       ]);
 
-      const suggestions = await discover(viewer, 'gym', '', '', 5, 0);
-      const nearby = await discover(viewer, 'area', '', '', 5, 0);
+      const suggestions = await discover(viewer, { scope: 'gym', limit: 5 });
+      const nearby = await discover(viewer, { scope: 'area', limit: 5 });
       const feedRows = await feed(viewer, 'all', 5, 0);
       const connections = (await connectionList(viewer)).filter((row) => row.status === 'accepted').slice(0, 5);
       const counts = countsResult.rows[0];
@@ -405,6 +762,7 @@ export function createCommunityService(options: {
         profile: profileResult.rows[0] ?? null,
         preferences: preferencesResult.rows[0] ?? null,
         membership: membershipResult.rows[0] ?? null,
+        memberships: membershipResult.rows,
         is_admin: isAdmin(viewer),
         suspended: statusResult.rows[0]?.suspended ?? false,
         members_at_gym: counts?.gym_count ?? 0,
@@ -425,76 +783,273 @@ export function createCommunityService(options: {
     feed,
     conversations,
 
-    async searchGyms(viewer: CommunityViewer, query: string, limitInput?: number, offsetInput?: number): Promise<Row[]> {
-      const limit = clamp(limitInput, 20, 50);
-      const offset = offsetOf(offsetInput);
+    async searchGyms(
+      viewer: CommunityViewer,
+      input: {
+        query?: string;
+        country?: string;
+        city?: string;
+        area?: string;
+        postalCode?: string;
+        limit?: number;
+        offset?: number;
+      } = {},
+    ): Promise<Row[]> {
+      const limit = clamp(input.limit, 20, 50);
+      const offset = offsetOf(input.offset);
+      const query = clean(input.query);
+      const country = normalizedCountryFilter(input.country);
+      const city = clean(input.city);
+      const area = clean(input.area);
+      const postal = clean(input.postalCode);
+
+      // Only an actual search reaches an external directory, never a keystroke
+      // with one character, and repeats are served from the cache table.
+      let providerFailed = false;
+      if (query.length >= 2 && gymProvider) {
+        providerFailed = !(await providerTextSearch(gymProvider, query, Math.min(limit, 20)));
+      }
+
       const result = await pool.query<Row>(
-        `SELECT g.id, g.name, g.address, g.city, g.state, g.country, g.area,
-                g.verification_status,
-                (SELECT count(*)::int FROM gym_memberships gm WHERE gm.gym_id = g.id) AS member_count
+        `SELECT ${gymColumns}
            FROM gyms g
-          WHERE (g.verification_status = 'verified' OR g.submitted_by = $1 OR $2)
+          WHERE (g.verification_status IN ('verified', 'imported') OR g.submitted_by = $1 OR $2)
             AND (
-              trim($3) = ''
-              OR lower(g.name) LIKE '%' || lower(trim($3)) || '%'
-              OR lower(g.city) LIKE '%' || lower(trim($3)) || '%'
-              OR lower(coalesce(g.area, '')) LIKE '%' || lower(trim($3)) || '%'
+              $3::text[] = '{}' OR NOT EXISTS (
+                SELECT 1 FROM unnest($3::text[]) AS token
+                WHERE gym_normalize(concat_ws(' ', g.name, g.city, g.area, g.state,
+                                              g.country, g.postal_code))
+                      NOT LIKE '%' || token || '%'
+              )
             )
-          ORDER BY (g.verification_status = 'verified') DESC, g.name
-          LIMIT $4 OFFSET $5`,
-        [viewer.userId, isAdmin(viewer), query, limit, offset],
+            AND ($4 = '' OR lower(coalesce(g.city, '')) = lower($4))
+            AND ($5 = '' OR gym_normalize(coalesce(g.area, '')) LIKE '%' || gym_normalize($5) || '%')
+            AND ($6 = '' OR lower(coalesce(g.postal_code, '')) LIKE lower($6) || '%')
+            AND (
+              $7 = '' OR
+              (length($7) = 2 AND upper(coalesce(g.country_code, '')) = upper($7)) OR
+              (length($7) <> 2 AND lower(coalesce(g.country, '')) = lower($7))
+            )
+          ORDER BY (g.verification_status = 'verified') DESC,
+                   (g.source = 'forma') DESC,
+                   (g.verification_status = 'imported') DESC,
+                   g.name
+          LIMIT $8 OFFSET $9`,
+        [viewer.userId, isAdmin(viewer), searchTokens(query), city, area, postal, country, limit, offset],
       );
+      if (providerFailed && result.rows.length === 0) {
+        throw serviceUnavailable(
+          'gym_directory_unavailable',
+          'The gym directory did not respond. Try again, or add your gym manually.',
+        );
+      }
       return result.rows;
+    },
+
+    async nearbyGyms(
+      viewer: CommunityViewer,
+      latitudeInput: number | undefined,
+      longitudeInput: number | undefined,
+      radiusInput?: number,
+      limitInput?: number,
+    ): Promise<Row[]> {
+      const latitude = coordinate(latitudeInput, 90);
+      const longitude = coordinate(longitudeInput, 180);
+      const radius = radiusKm(radiusInput);
+      const limit = clamp(limitInput, 20, 50);
+
+      let rows = await queryNearbyGyms(viewer, latitude, longitude, radius, limit);
+      if (gymProvider && rows.length < Math.min(limit, 10)) {
+        const ok = await providerNearbySearch(
+          gymProvider,
+          latitude,
+          longitude,
+          radius * 1000,
+          Math.min(limit, 20),
+        );
+        rows = await queryNearbyGyms(viewer, latitude, longitude, radius, limit);
+        if (!ok && rows.length === 0) {
+          throw serviceUnavailable(
+            'gym_directory_unavailable',
+            'The gym directory did not respond. Try again, or add your gym manually.',
+          );
+        }
+      }
+      return rows;
+    },
+
+    async gymDetails(viewer: CommunityViewer, gymId: string): Promise<Row> {
+      const id = validGymId(gymId);
+      if (!id) throw badRequest('invalid_gym', 'That gym was not recognized.');
+      const result = await pool.query<Row>(
+        `SELECT ${gymColumns}
+           FROM gyms g
+          WHERE g.id = $1
+            AND (g.verification_status IN ('verified', 'imported') OR g.submitted_by = $2 OR $3)`,
+        [id, viewer.userId, isAdmin(viewer)],
+      );
+      if (!result.rows[0]) throw notFound('That gym could not be found.');
+      return result.rows[0];
+    },
+
+    gymProviderStatus(): Row {
+      return { ...gymProviderInfo };
     },
 
     async requestGym(
       viewer: CommunityViewer,
-      input: { name: string; city: string; area?: string | null; address?: string | null },
+      input: {
+        name: string;
+        city: string;
+        area?: string | null;
+        address?: string | null;
+        state?: string | null;
+        country?: string | null;
+        postalCode?: string | null;
+      },
     ): Promise<Row> {
       await requireActive(viewer.userId, 'submit gyms');
       const name = clean(input.name);
       const city = clean(input.city);
       if (name.length < 2 || city.length < 2) throw badRequest('invalid_gym', 'Enter the gym name and city.');
+      const country = normalizeCountry(input.country);
+      const normalized = normalizeGymName(name);
       const existing = await pool.query<Row>(
         `SELECT id, verification_status FROM gyms
-          WHERE lower(name) = lower($1)
-            AND lower(city) = lower($2)
-            AND lower(coalesce(area, '')) = lower($3)`,
-        [name, city, clean(input.area)],
+          WHERE normalized_name = $1
+            AND lower(coalesce(city, '')) = lower($2)
+            AND lower(coalesce(country_code, country, '')) = lower(coalesce($3, $4, ''))
+            AND lower(coalesce(area, '')) = lower($5)
+          LIMIT 1`,
+        [normalized, city, country.code, country.name, clean(input.area)],
       );
       if (existing.rows[0]) {
         return { id: existing.rows[0].id, status: existing.rows[0].verification_status, created: false };
       }
       const created = await pool.query<Row>(
-        `INSERT INTO gyms (name, city, area, address, submitted_by)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO gyms (name, normalized_name, city, area, address, state, country, country_code,
+                           postal_code, submitted_by, source, verification_status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'user', 'pending')
+         ON CONFLICT DO NOTHING
          RETURNING id, verification_status`,
-        [name, city, clean(input.area) || null, clean(input.address) || null, viewer.userId],
+        [
+          name,
+          normalized,
+          city,
+          clean(input.area) || null,
+          clean(input.address) || null,
+          clean(input.state) || null,
+          country.name,
+          country.code,
+          clean(input.postalCode) || null,
+          viewer.userId,
+        ],
       );
-      return { id: created.rows[0]!.id, status: created.rows[0]!.verification_status, created: true };
+      if (created.rows[0]) {
+        return { id: created.rows[0].id, status: created.rows[0].verification_status, created: true };
+      }
+      const again = await pool.query<Row>(
+        `SELECT id, verification_status FROM gyms
+          WHERE normalized_name = $1 AND lower(coalesce(city, '')) = lower($2) LIMIT 1`,
+        [normalized, city],
+      );
+      if (!again.rows[0]) throw badRequest('invalid_gym', 'That gym could not be added. Check the details and try again.');
+      return { id: again.rows[0].id, status: again.rows[0].verification_status, created: false };
     },
 
-    async joinGym(viewer: CommunityViewer, gymId: string): Promise<void> {
+    async joinGym(
+      viewer: CommunityViewer,
+      gymId: string,
+      optionsInput: { isPrimary?: boolean; membershipType?: string; visibility?: string } = {},
+    ): Promise<void> {
       await requireActive(viewer.userId, 'join a gym community');
       const chosen = await pool.query<Row>('SELECT * FROM gyms WHERE id = $1', [gymId]);
       const gym = chosen.rows[0];
       if (!gym) throw notFound('That gym could not be found.');
-      if (gym.verification_status !== 'verified' && gym.submitted_by !== viewer.userId) {
+      if (!['verified', 'imported'].includes(gym.verification_status) && gym.submitted_by !== viewer.userId) {
         throw forbidden('This gym is still awaiting review.');
       }
+      const isPrimary = optionsInput.isPrimary ?? true;
+      const membershipType = ['member', 'day_pass', 'online', 'coach'].includes(optionsInput.membershipType ?? '')
+        ? optionsInput.membershipType!
+        : 'member';
+      const visibility = ['private', 'members', 'public'].includes(optionsInput.visibility ?? '')
+        ? optionsInput.visibility!
+        : 'members';
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
+        if (isPrimary) {
+          await client.query(
+            'UPDATE gym_memberships SET is_primary = false, updated_at = now() WHERE user_id = $1 AND is_primary',
+            [viewer.userId],
+          );
+        }
         await client.query(
-          `INSERT INTO gym_memberships (user_id, gym_id) VALUES ($1, $2)
-           ON CONFLICT (user_id) DO UPDATE SET gym_id = excluded.gym_id, created_at = now()`,
+          `INSERT INTO gym_memberships (user_id, gym_id, is_primary, membership_type, visibility)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (user_id, gym_id) DO UPDATE SET
+             is_primary = gym_memberships.is_primary OR excluded.is_primary,
+             membership_type = excluded.membership_type,
+             visibility = excluded.visibility,
+             updated_at = now()`,
+          [viewer.userId, gymId, isPrimary, membershipType, visibility],
+        );
+        if (isPrimary) {
+          await client.query(
+            `INSERT INTO community_preferences (user_id, city, area, country, country_code)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (user_id) DO UPDATE SET
+               city = coalesce(excluded.city, community_preferences.city),
+               area = coalesce(excluded.area, community_preferences.area),
+               country = coalesce(excluded.country, community_preferences.country),
+               country_code = coalesce(excluded.country_code, community_preferences.country_code),
+               updated_at = now()`,
+            [viewer.userId, gym.city, gym.area, gym.country, gym.country_code],
+          );
+        }
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async removeGymMembership(viewer: CommunityViewer, gymId: string): Promise<void> {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const removed = await client.query<{ is_primary: boolean }>(
+          `DELETE FROM gym_memberships WHERE user_id = $1 AND gym_id = $2 RETURNING is_primary`,
           [viewer.userId, gymId],
         );
-        await client.query(
-          `INSERT INTO community_preferences (user_id, city, area) VALUES ($1, $2, $3)
-           ON CONFLICT (user_id) DO UPDATE SET city = excluded.city, area = excluded.area, updated_at = now()`,
-          [viewer.userId, gym.city, gym.area],
-        );
+        if (!removed.rows[0]) throw notFound('That gym is not in your memberships.');
+        if (removed.rows[0].is_primary) {
+          const next = await client.query<Row>(
+            `SELECT gm.gym_id, g.city, g.area, g.country, g.country_code
+               FROM gym_memberships gm JOIN gyms g ON g.id = gm.gym_id
+              WHERE gm.user_id = $1
+              ORDER BY gm.created_at, gm.id
+              LIMIT 1`,
+            [viewer.userId],
+          );
+          if (next.rows[0]) {
+            await client.query(
+              'UPDATE gym_memberships SET is_primary = true, updated_at = now() WHERE user_id = $1 AND gym_id = $2',
+              [viewer.userId, next.rows[0].gym_id],
+            );
+            await client.query(
+              `UPDATE community_preferences SET
+                 city = coalesce($2, city), area = coalesce($3, area),
+                 country = coalesce($4, country), country_code = coalesce($5, country_code),
+                 updated_at = now()
+               WHERE user_id = $1`,
+              [viewer.userId, next.rows[0].city, next.rows[0].area, next.rows[0].country, next.rows[0].country_code],
+            );
+          }
+        }
         await client.query('COMMIT');
       } catch (error) {
         await client.query('ROLLBACK').catch(() => undefined);
@@ -615,7 +1170,10 @@ export function createCommunityService(options: {
         discoverable: boolean;
         showGym: boolean;
         showArea: boolean;
+        showCity: boolean;
+        showCountry: boolean;
         nearbyDiscovery: boolean;
+        globalDiscovery: boolean;
         allowConnectionRequests: boolean;
         allowMessages: boolean;
         notifyConnections: boolean;
@@ -627,15 +1185,18 @@ export function createCommunityService(options: {
       await requireActive(viewer.userId, 'change community settings');
       const saved = await pool.query<Row>(
         `INSERT INTO community_preferences
-           (user_id, discoverable, show_gym, show_area, nearby_discovery,
-            allow_connection_requests, allow_messages,
+           (user_id, discoverable, show_gym, show_area, show_city, show_country,
+            nearby_discovery, global_discovery, allow_connection_requests, allow_messages,
             notify_connections, notify_messages, notify_comments, notify_likes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          ON CONFLICT (user_id) DO UPDATE SET
            discoverable = excluded.discoverable,
            show_gym = excluded.show_gym,
            show_area = excluded.show_area,
+           show_city = excluded.show_city,
+           show_country = excluded.show_country,
            nearby_discovery = excluded.nearby_discovery,
+           global_discovery = excluded.global_discovery,
            allow_connection_requests = excluded.allow_connection_requests,
            allow_messages = excluded.allow_messages,
            notify_connections = excluded.notify_connections,
@@ -649,7 +1210,10 @@ export function createCommunityService(options: {
           input.discoverable,
           input.showGym,
           input.showArea,
+          input.showCity,
+          input.showCountry,
           input.nearbyDiscovery,
+          input.globalDiscovery,
           input.allowConnectionRequests,
           input.allowMessages,
           input.notifyConnections,
@@ -861,16 +1425,30 @@ export function createCommunityService(options: {
         `SELECT cp.user_id, cp.username, cp.display_name, cp.bio, cp.avatar_url,
                 cp.interests, cp.workout_categories, cp.created_at AS joined_at,
                 cp.achievements_opt_in,
-                CASE WHEN pref.show_gym THEN g.name END AS gym_name,
-                CASE WHEN pref.show_area THEN pref.city END AS city,
+                CASE WHEN pref.show_gym AND coalesce(g.visibility, 'members') <> 'private'
+                     THEN g.name END AS gym_name,
+                CASE WHEN pref.show_city THEN pref.city END AS city,
                 CASE WHEN pref.show_area THEN pref.area END AS area,
+                CASE WHEN pref.show_country THEN coalesce(pref.country, g.country) END AS country,
+                CASE WHEN pref.show_country THEN coalesce(pref.country_code, g.country_code) END AS country_code,
                 community_connection_status($1, cp.user_id) AS connection_status,
-                community_same_gym($1, cp.user_id) AS shared_gym,
+                EXISTS (
+                  SELECT 1 FROM gym_memberships mine
+                  JOIN gym_memberships theirs ON theirs.gym_id = mine.gym_id
+                  WHERE mine.user_id = $1 AND theirs.user_id = cp.user_id
+                    AND theirs.visibility <> 'private'
+                ) AS shared_gym,
                 community_area_compatible($1, cp.user_id) AS shared_area
            FROM community_profiles cp
            JOIN community_preferences pref ON pref.user_id = cp.user_id
-           LEFT JOIN gym_memberships gm ON gm.user_id = cp.user_id
-           LEFT JOIN gyms g ON g.id = gm.gym_id
+           LEFT JOIN LATERAL (
+             SELECT g.name, g.country, g.country_code, gm.visibility
+               FROM gym_memberships gm
+               JOIN gyms g ON g.id = gm.gym_id
+              WHERE gm.user_id = cp.user_id
+              ORDER BY gm.is_primary DESC, gm.created_at
+              LIMIT 1
+           ) g ON true
           WHERE cp.user_id = $2`,
         [viewer.userId, targetUserId],
       );
@@ -937,6 +1515,17 @@ export function createCommunityService(options: {
         return { id: input.id, created_at: existing.rows[0].created_at };
       }
       realtime.emitToUser(viewer.userId, 'activity', { kind: 'post_created', entity_id: input.id });
+      // Accepted connections can see this post, so their feeds refetch too.
+      const audience = await pool.query<{ user_id: string }>(
+        `SELECT CASE WHEN requester_id = $1 THEN recipient_id ELSE requester_id END AS user_id
+           FROM community_connections
+          WHERE status = 'accepted' AND (requester_id = $1 OR recipient_id = $1)
+          LIMIT 500`,
+        [viewer.userId],
+      );
+      for (const row of audience.rows) {
+        realtime.emitToUser(row.user_id, 'activity', { kind: 'post_created', entity_id: input.id });
+      }
       return created.rows[0];
     },
 
@@ -1277,7 +1866,7 @@ export function createCommunityService(options: {
     ): Promise<Row> {
       const targetType = input.targetType.toLowerCase();
       const reason = input.reason.toLowerCase();
-      if (!['harassment', 'spam', 'inappropriate', 'impersonation', 'suspicious', 'other'].includes(reason)) {
+      if (!['harassment', 'spam', 'inappropriate', 'impersonation', 'suspicious', 'incorrect_details', 'other'].includes(reason)) {
         throw badRequest('invalid_reason', 'Choose a reason for the report.');
       }
       let targetOk = false;
@@ -1304,6 +1893,14 @@ export function createCommunityService(options: {
           `SELECT 1 FROM community_messages m
             WHERE m.id = $1 AND m.sender_id <> $2 AND community_conversation_participant(m.conversation_id, $3)`,
           [input.targetID, viewer.userId, viewer.userId],
+        );
+        targetOk = (result.rowCount ?? 0) > 0;
+      } else if (targetType === 'gym') {
+        const result = await pool.query(
+          `SELECT 1 FROM gyms
+            WHERE id = $1
+              AND (verification_status IN ('verified', 'imported') OR submitted_by = $2)`,
+          [input.targetID, viewer.userId],
         );
         targetOk = (result.rowCount ?? 0) > 0;
       } else {

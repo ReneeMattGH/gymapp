@@ -10,6 +10,70 @@ const migrationsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'm
  * Applies every pending `.sql` file once, in filename order, inside a single
  * transaction guarded by an advisory lock so two processes cannot race.
  */
+const REQUIRED_TABLES = [
+  'users',
+  'sessions',
+  'refresh_tokens',
+  'community_profiles',
+  'community_preferences',
+  'gyms',
+  'gym_memberships',
+  'community_connections',
+  'community_conversations',
+  'community_messages',
+  'community_posts',
+  'community_comments',
+  'community_likes',
+  'community_notifications',
+];
+
+/**
+ * Checks that the database matches this build before it starts serving
+ * traffic. Returns human-readable problems; an empty array means compatible.
+ */
+export async function verifySchema(pool: Pool): Promise<string[]> {
+  const problems: string[] = [];
+  const files = (await readdir(migrationsDir)).filter((file) => file.endsWith('.sql')).sort();
+
+  try {
+    const applied = await pool.query<{ name: string }>('SELECT name FROM schema_migrations');
+    const names = new Set(applied.rows.map((row) => row.name));
+    for (const file of files) {
+      if (!names.has(file)) problems.push(`migration ${file} has not been applied`);
+    }
+  } catch {
+    problems.push('the schema_migrations table is missing');
+  }
+
+  const missing = await pool.query<{ name: string }>(
+    `SELECT t AS name FROM unnest($1::text[]) AS t WHERE to_regclass('public.' || t) IS NULL`,
+    [REQUIRED_TABLES],
+  );
+  for (const row of missing.rows) {
+    problems.push(`table ${row.name} is missing`);
+  }
+
+  const requiredColumns: Array<[table: string, column: string]> = [
+    ['sessions', 'access_expires_at'],
+    ['gyms', 'provider_id'],
+    ['gym_memberships', 'is_primary'],
+    ['community_preferences', 'global_discovery'],
+  ];
+  const missingColumns = await pool.query<{ table_name: string; column_name: string }>(
+    `SELECT t AS table_name, c AS column_name
+       FROM unnest($1::text[], $2::text[]) AS pair(t, c)
+      WHERE NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = t AND column_name = c
+      )`,
+    [requiredColumns.map(([table]) => table), requiredColumns.map(([, column]) => column)],
+  );
+  for (const row of missingColumns.rows) {
+    problems.push(`column ${row.table_name}.${row.column_name} is missing`);
+  }
+  return problems;
+}
+
 export async function runMigrations(pool: Pool, logger?: Logger): Promise<string[]> {
   const client = await pool.connect();
   try {

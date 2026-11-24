@@ -148,13 +148,13 @@ struct RemindersView: View {
                             .foregroundStyle(palette.textTertiary)
                     }
                 }
-                .tint(palette.accent)
+                .tint(palette.accentText)
 
                 if enabled {
                     FormaDivider()
                     DatePicker("Time", selection: $workoutTime, displayedComponents: .hourAndMinute)
                         .font(FormaFont.bodyFont(13))
-                        .tint(palette.accent)
+                        .tint(palette.accentText)
                     FormaDivider()
                     VStack(alignment: .leading, spacing: Spacing.sm) {
                         Text("Days")
@@ -249,7 +249,7 @@ struct RemindersView: View {
                     .foregroundStyle(palette.textTertiary)
             }
         }
-        .tint(palette.accent)
+        .tint(palette.accentText)
         .padding(.vertical, Spacing.sm)
     }
 
@@ -308,6 +308,7 @@ struct RemindersView: View {
 struct HealthView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.formaPalette) private var palette
+    @State private var confirmDisconnect = false
 
     var body: some View {
         ScrollView {
@@ -348,6 +349,23 @@ struct HealthView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .task {
+            if model.healthOptIn && !model.healthFetched {
+                await model.loadHealth()
+            }
+        }
+        .confirmationDialog(
+            "Disconnect Apple Health?",
+            isPresented: $confirmDisconnect,
+            titleVisibility: .visible
+        ) {
+            Button("Disconnect", role: .destructive) {
+                model.disableHealth()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Forma stops reading Health data and clears what it last showed. Your Health records are untouched, and iOS permissions can be changed in Settings.")
+        }
     }
 
     private var connectionCard: some View {
@@ -373,7 +391,7 @@ struct HealthView: View {
                         Task { await model.loadHealth() }
                     }
                     SecondaryButton(title: "Disconnect") {
-                        model.disableHealth()
+                        confirmDisconnect = true
                     }
                 }
             } else {

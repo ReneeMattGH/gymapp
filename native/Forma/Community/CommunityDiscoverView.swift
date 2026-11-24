@@ -10,7 +10,17 @@ struct CommunityDiscoverSection: View {
     @Binding var showReportFor: CommunityReportPayload?
 
     @Environment(\.formaPalette) private var palette
-    @State private var query = ""
+    @State private var query: String
+    @State private var countryText: String
+    @State private var cityText: String
+
+    init(store: CommunityStore, showReportFor: Binding<CommunityReportPayload?>) {
+        self.store = store
+        self._showReportFor = showReportFor
+        self._query = State(initialValue: store.discoverQuery)
+        self._countryText = State(initialValue: store.discoverCountry)
+        self._cityText = State(initialValue: store.discoverCity)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.lg) {
@@ -19,12 +29,11 @@ struct CommunityDiscoverSection: View {
                 text: $query,
                 capitalization: .never
             )
-            .onChange(of: query) { _, newValue in
-                Task {
-                    try? await Task.sleep(for: .milliseconds(350))
-                    guard !Task.isCancelled else { return }
-                    await store.searchDiscover(query: newValue)
-                }
+            .task(id: query) {
+                guard query != store.discoverQuery else { return }
+                try? await Task.sleep(for: .milliseconds(350))
+                guard !Task.isCancelled else { return }
+                await store.searchDiscover(query: query)
             }
 
             CommunitySectionChips(
@@ -63,6 +72,40 @@ struct CommunityDiscoverSection: View {
                 }
             }
 
+            HStack(spacing: Spacing.md) {
+                FormaTextField(
+                    label: "Country",
+                    placeholder: "e.g. India or IN",
+                    text: $countryText,
+                    capitalization: .words
+                )
+                .task(id: countryText) {
+                    guard countryText != store.discoverCountry else { return }
+                    try? await Task.sleep(for: .milliseconds(400))
+                    guard !Task.isCancelled else { return }
+                    await store.setDiscoverCountry(countryText)
+                }
+                FormaTextField(
+                    label: "City",
+                    placeholder: "e.g. Chennai",
+                    text: $cityText,
+                    capitalization: .words
+                )
+                .task(id: cityText) {
+                    guard cityText != store.discoverCity else { return }
+                    try? await Task.sleep(for: .milliseconds(400))
+                    guard !Task.isCancelled else { return }
+                    await store.setDiscoverCity(cityText)
+                }
+            }
+
+            if store.discoverScope != .gym {
+                Text("Use the Global tab with a country or city filter to reach members anywhere. Clear the filters to see everyone discoverable.")
+                    .font(FormaFont.bodyFont(10))
+                    .foregroundStyle(palette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             if store.discoverLoading {
                 LoadingCard(label: "Looking for members")
             } else if store.discoverResults.isEmpty {
@@ -70,13 +113,15 @@ struct CommunityDiscoverSection: View {
                     systemImage: "person.2",
                     title: "No members to show",
                     message: emptyMessage,
-                    actionTitle: store.discoverScope == .gym ? "Change gym or area" : nil,
-                    action: store.discoverScope == .gym ? { store.discoverScope = .area; Task { await store.loadDiscover(reset: true) } } : nil
+                    actionTitle: store.discoverScope == .gym ? "Try Global" : nil,
+                    action: store.discoverScope == .gym ? { Task { await store.setDiscoverScope(.global) } } : nil
                 )
             } else {
                 VStack(spacing: 0) {
                     ForEach(store.discoverResults) { member in
-                        NavigationLink(value: CommunityRoute.member(member.userID)) {
+                        NavigationLink {
+                            communityDestination(.member(member.userID), store: store)
+                        } label: {
                             CommunityMemberRow(member: member, trailing: AnyView(action(for: member)))
                                 .padding(.vertical, Spacing.md)
                         }
@@ -109,8 +154,14 @@ struct CommunityDiscoverSection: View {
             return "No one who shares your gym has opted into discovery yet. Members only appear here after they join a gym, create a community profile and turn discovery on."
         case .area:
             return "No one in your area group has opted into nearby discovery yet. Choosing an area never reveals anyone's live location."
-        case .all:
-            return "No discoverable members match this search yet."
+        case .city:
+            return "No discoverable members are sharing your city yet. They control this with their city visibility setting."
+        case .region:
+            return "No discoverable members train in a gym in your region yet. They control this with their gym visibility setting."
+        case .country:
+            return "No discoverable members are sharing your country yet."
+        case .global:
+            return "No discoverable members match this search. Clear the filters to widen it."
         }
     }
 
@@ -265,12 +316,10 @@ struct CommunityMemberProfileView: View {
             FormaCard {
                 KeyValueRow(label: "Gym", value: profile.gymName ?? "Not shared")
                 FormaDivider()
-                KeyValueRow(
-                    label: "Area",
-                    value: [profile.area, profile.city].compactMap { $0 }.joined(separator: ", ").isEmpty
-                        ? "Not shared"
-                        : [profile.area, profile.city].compactMap { $0 }.joined(separator: ", ")
-                )
+                let place = [profile.area, profile.city, profile.country]
+                    .compactMap { $0 }
+                    .joined(separator: ", ")
+                KeyValueRow(label: "Location", value: place.isEmpty ? "Not shared" : place)
                 FormaDivider()
                 KeyValueRow(label: "Shared context", value: sharedContext(profile))
             }
@@ -343,7 +392,9 @@ struct CommunityMemberProfileView: View {
                 }
             case .accepted:
                 if let conversation {
-                    NavigationLink(value: CommunityRoute.conversation(conversation)) {
+                    NavigationLink {
+                        communityDestination(.conversation(conversation), store: store)
+                    } label: {
                         Text("Message \(profile.displayName)")
                             .font(FormaFont.bodyFont(14, weight: .semibold))
                             .foregroundStyle(palette.accentInk)

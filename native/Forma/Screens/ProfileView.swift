@@ -125,7 +125,7 @@ struct ProfileView: View {
                     .background(palette.surface, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                            .strokeBorder(profile.id == model.user?.id ? palette.accent.opacity(0.5) : palette.border, lineWidth: 1)
+                            .strokeBorder(profile.id == model.user?.id ? palette.accentBorder : palette.border, lineWidth: 1)
                     }
                 }
                 .buttonStyle(PressableScaleStyle())

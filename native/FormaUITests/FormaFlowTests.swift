@@ -6,6 +6,12 @@ final class FormaFlowTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
+        // Lets a run target another backend (for example a short-TTL build on
+        // a second port) through the launch environment, which is also how a
+        // physical-device build is pointed at a LAN address.
+        if let override = ProcessInfo.processInfo.environment["FORMA_TEST_API_URL"], !override.isEmpty {
+            app.launchEnvironment["FORMA_API_URL"] = override
+        }
         app.launch()
     }
 
@@ -31,9 +37,11 @@ final class FormaFlowTests: XCTestCase {
         tapButton("Continue")
         settle()
         snap("07-onboarding-preferences")
-        tapButton("Continue")
-        settle()
-        snap("08-onboarding-review")
+        // Signed-in accounts see an extra Community step before the review.
+        advanceOnboardingIfNeeded()
+        snap("08-onboarding-community")
+        advanceOnboardingIfNeeded()
+        snap("09-onboarding-review")
 
         tapButton("Build my plan", timeout: 10)
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
@@ -285,7 +293,30 @@ final class FormaFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["UNVERIFIED"].waitForExistence(timeout: 15), "Signing back in with the real password failed: \(email)")
         snap("24e-account-signed-in-again")
 
+        // A cold start must restore the account from Keychain tokens through
+        // /auth/me, not ask the member to sign in again.
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Profile"].waitForExistence(timeout: 20), "The app did not relaunch")
+        app.tabBars.buttons["Profile"].tap()
+        let restoredRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", email)).firstMatch
+        XCTAssertTrue(restoredRow.waitForExistence(timeout: 20), "The account row did not show the restored session")
+        restoredRow.tap()
+        XCTAssertTrue(
+            app.staticTexts[email].waitForExistence(timeout: 20),
+            "The signed-in account was not restored from the Keychain after relaunch"
+        )
+        snap("24e1-account-restored")
+        app.navigationBars.buttons.firstMatch.tap()
+        sleep(1)
+
         verifyLiveCommunity()
+
+        // verifyLiveCommunity returns to the Profile root, so reopen the account.
+        let deleteAccountRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", email)).firstMatch
+        scrollUntilHittable(deleteAccountRow)
+        deleteAccountRow.tap()
+        XCTAssertTrue(app.staticTexts["Forma account."].waitForExistence(timeout: 8), "The account screen did not reopen")
 
         let deleteButton = app.buttons["Delete account"]
         scrollUntilHittable(deleteButton)
@@ -346,12 +377,130 @@ final class FormaFlowTests: XCTestCase {
         app.navigationBars.buttons.firstMatch.tap()
         sleep(1)
 
+        verifyGymSelection()
+        verifyCommunityPrivacy()
+        verifyGlobalDiscovery()
+
         app.tabBars.buttons["Profile"].tap()
         sleep(1)
     }
 
+    /// Opens gym selection from Community, submits a real missing gym through
+    /// the manual form, then chooses it from worldwide search. The gym name is
+    /// a verified OpenStreetMap entry for Chennai rather than invented data.
+    private func verifyGymSelection() {
+        let choose = app.buttons["Choose"].firstMatch
+        XCTAssertTrue(choose.waitForExistence(timeout: 8), "The gym selection button is missing")
+        XCTAssertTrue(choose.isHittable, "The gym selection button is not tappable")
+        choose.tap()
+        if !app.navigationBars["Gyms"].waitForExistence(timeout: 5) {
+            choose.tap()
+        }
+        XCTAssertTrue(app.navigationBars["Gyms"].waitForExistence(timeout: 8), "Gym selection did not open")
+        XCTAssertTrue(app.buttons["Near me"].exists, "Near-me gym mode is missing")
+        XCTAssertTrue(app.buttons["Search"].exists, "Worldwide gym search mode is missing")
+        XCTAssertTrue(app.buttons["Manual"].exists, "Manual gym mode is missing")
+        snap("24e4-gym-selection")
+
+        app.buttons["Manual"].tap()
+        let nameField = app.textFields["e.g. Fitness District"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5))
+        nameField.tap()
+        nameField.typeText("Penguin Sports Academy")
+        let cityField = app.textFields["e.g. Chennai"]
+        cityField.tap()
+        cityField.typeText("Chennai")
+        let countryField = app.textFields["e.g. India"]
+        countryField.tap()
+        countryField.typeText("India")
+
+        let submitGym = app.buttons["Submit gym request"]
+        scrollUntilHittable(submitGym)
+        submitGym.tap()
+        let requestResult = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@ OR label CONTAINS %@", "visible in your search", "already exists")
+        ).firstMatch
+        XCTAssertTrue(
+            requestResult.waitForExistence(timeout: 15),
+            "Submitting a gym did not produce a real server result"
+        )
+        snap("24e5-gym-requested")
+
+        app.buttons["Search"].tap()
+        let gymQuery = app.textFields["Gym name, area or postcode"]
+        XCTAssertTrue(gymQuery.waitForExistence(timeout: 5))
+        gymQuery.tap()
+        gymQuery.typeText("Penguin")
+        XCTAssertTrue(
+            app.staticTexts["Penguin Sports Academy"].waitForExistence(timeout: 15),
+            "Worldwide search did not find the submitted gym"
+        )
+        let chooseGym = app.buttons["Choose"].firstMatch
+        XCTAssertTrue(chooseGym.waitForExistence(timeout: 5), "The gym could not be chosen")
+        chooseGym.tap()
+        XCTAssertTrue(
+            app.staticTexts["PRIMARY"].waitForExistence(timeout: 15),
+            "Choosing a gym did not create a primary membership"
+        )
+        snap("24e6-gym-primary")
+
+        app.navigationBars.buttons.firstMatch.tap()
+        sleep(1)
+        XCTAssertTrue(
+            app.staticTexts["Penguin Sports Academy"].waitForExistence(timeout: 8),
+            "The chosen gym is not shown on the Community home screen"
+        )
+    }
+
+    /// New privacy controls must be visible and save through the real backend.
+    private func verifyCommunityPrivacy() {
+        let settings = app.buttons["Community settings"].firstMatch
+        XCTAssertTrue(settings.waitForExistence(timeout: 8), "Community settings entry is missing")
+        settings.tap()
+
+        XCTAssertTrue(app.navigationBars["Community settings"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Show my city"].waitForExistence(timeout: 8), "City visibility setting is missing")
+        XCTAssertTrue(app.staticTexts["Show my country"].exists, "Country visibility setting is missing")
+        XCTAssertTrue(app.staticTexts["Discoverable worldwide"].exists, "Global discovery setting is missing")
+        snap("24e7-community-privacy")
+
+        let save = app.buttons["Save settings"]
+        scrollUntilHittable(save)
+        save.tap()
+        XCTAssertTrue(app.staticTexts["Settings saved."].waitForExistence(timeout: 10), "Saving privacy settings failed")
+        app.navigationBars.buttons.firstMatch.tap()
+        sleep(1)
+    }
+
+    /// Global discovery must be reachable without sharing a gym, with working
+    /// country and city filters.
+    private func verifyGlobalDiscovery() {
+        let discover = app.buttons["Discover"].firstMatch
+        XCTAssertTrue(discover.waitForExistence(timeout: 8), "The Discover section is missing")
+        discover.tap()
+
+        XCTAssertTrue(app.buttons["Region"].firstMatch.exists, "The Region discovery scope is missing")
+        XCTAssertTrue(app.buttons["Global"].firstMatch.exists, "The Global discovery scope is missing")
+        // The scope chips scroll horizontally; drag from a visible chip so the
+        // offscreen Global chip has a valid frame to tap.
+        let cityChip = app.buttons["City"].firstMatch
+        let dragStart = cityChip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        dragStart.press(forDuration: 0.05, thenDragTo: dragStart.withOffset(CGVector(dx: -280, dy: 0)))
+        let global = app.buttons["Global"].firstMatch
+        global.tap()
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Discoverable members anywhere"))
+                .firstMatch.waitForExistence(timeout: 8),
+            "Global discovery did not describe worldwide matching"
+        )
+        XCTAssertTrue(app.textFields["e.g. India or IN"].exists, "Country filter is missing from discovery")
+        XCTAssertTrue(app.textFields["e.g. Chennai"].exists, "City filter is missing from discovery")
+        snap("24e8-global-discovery")
+    }
+
     private func backendIsReachable() -> Bool {
-        guard let url = URL(string: "http://localhost:8787/health") else { return false }
+        let origin = ProcessInfo.processInfo.environment["FORMA_TEST_API_URL"] ?? "http://localhost:8787"
+        guard let url = URL(string: origin.hasSuffix("/") ? origin + "health" : origin + "/health") else { return false }
         var request = URLRequest(url: url)
         request.timeoutInterval = 3
         var reachable = false
@@ -392,6 +541,16 @@ final class FormaFlowTests: XCTestCase {
         sleep(1)
     }
 
+    /// The Community step exists only for signed-in accounts, so the number of
+    /// onboarding steps differs between runs.
+    private func advanceOnboardingIfNeeded() {
+        let continueButton = app.buttons["Continue"].firstMatch
+        if continueButton.waitForExistence(timeout: 3), continueButton.isHittable {
+            continueButton.tap()
+            settle()
+        }
+    }
+
     private func scrollUntilHittable(_ element: XCUIElement, maxSwipes: Int = 8) {
         var swipes = 0
         while !(element.exists && element.isHittable) && swipes < maxSwipes {
@@ -406,4 +565,6 @@ final class FormaFlowTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
     }
+
+    /// Temporary diagnostic for the gym selection entry point.
 }

@@ -154,7 +154,7 @@ struct PrimaryButton: View {
             }
             .foregroundStyle(palette.accentInk)
             .frame(maxWidth: .infinity)
-            .frame(height: 50)
+            .frame(minHeight: 50)
             .background(palette.accentGradient, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
         }
         .buttonStyle(PressableScaleStyle())
@@ -187,7 +187,7 @@ struct SecondaryButton: View {
             }
             .foregroundStyle(destructive ? palette.danger : palette.text)
             .frame(maxWidth: .infinity)
-            .frame(height: 46)
+            .frame(minHeight: 46)
             .background(palette.surface, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
@@ -216,7 +216,7 @@ struct IconButton: View {
             Image(systemName: systemImage)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(accent ? palette.accentInk : palette.text)
-                .frame(width: 38, height: 38)
+                .frame(width: 44, height: 44)
                 .background(
                     accent ? AnyShapeStyle(palette.accentGradient) : AnyShapeStyle(palette.surface),
                     in: Circle()
@@ -309,9 +309,13 @@ struct FormaTextField: View {
     var capitalization: TextInputAutocapitalization = .sentences
     var contentType: UITextContentType?
     var suffix: String?
+    /// Shows the danger border and an inline message once validation has run.
+    var isInvalid = false
+    var message: String?
 
     @Environment(\.formaPalette) private var palette
     @FocusState private var focused: Bool
+    @State private var revealed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -320,9 +324,9 @@ struct FormaTextField: View {
                     .font(FormaFont.bodyFont(12, weight: .medium))
                     .foregroundStyle(palette.textSecondary)
             }
-            HStack(spacing: Spacing.sm) {
+            HStack(spacing: Spacing.xs) {
                 Group {
-                    if secure {
+                    if secure && !revealed {
                         SecureField(placeholder, text: $text)
                     } else {
                         TextField(placeholder, text: $text)
@@ -336,20 +340,44 @@ struct FormaTextField: View {
                 .autocorrectionDisabled(keyboard == .emailAddress)
                 .focused($focused)
 
-                if let suffix {
+                if secure {
+                    Button {
+                        revealed.toggle()
+                    } label: {
+                        Image(systemName: revealed ? "eye.slash" : "eye")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(palette.textSecondary)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(revealed ? "Hide password" : "Show password")
+                } else if let suffix {
                     Text(suffix)
                         .font(FormaFont.bodyFont(12))
                         .foregroundStyle(palette.textTertiary)
                 }
             }
-            .padding(.horizontal, Spacing.md)
-            .frame(height: 48)
+            .padding(.leading, Spacing.md)
+            .padding(.trailing, secure ? Spacing.xs : Spacing.md)
+            .frame(minHeight: 48)
             .background(palette.input, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-                    .strokeBorder(focused ? palette.accentBorder : palette.border, lineWidth: 1)
+                    .strokeBorder(
+                        isInvalid ? palette.danger : (focused ? palette.accentBorder : palette.border),
+                        lineWidth: 1
+                    )
+            }
+            if let message {
+                Text(message)
+                    .font(FormaFont.bodyFont(11.5))
+                    .foregroundStyle(palette.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
             }
         }
+        .animation(.easeOut(duration: 0.15), value: isInvalid)
     }
 }
 
@@ -557,6 +585,34 @@ struct LoadingCard: View {
     }
 }
 
+/// Neutral placeholder for content that is still loading. Purely decorative, so
+/// VoiceOver skips it and the real loaded content is the only thing announced.
+struct SkeletonBlock: View {
+    var height: CGFloat = 14
+    var width: CGFloat? = nil
+    var corner: CGFloat = Radius.sm
+
+    @Environment(\.formaPalette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dimmed = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: corner, style: .continuous)
+            .fill(palette.surfaceRaised)
+            .frame(width: width, height: height)
+            .opacity(dimmed ? 0.55 : 1)
+            .animation(
+                reduceMotion ? nil : .easeInOut(duration: 0.9).repeatForever(autoreverses: true),
+                value: dimmed
+            )
+            .onAppear {
+                guard !reduceMotion else { return }
+                dimmed = true
+            }
+            .accessibilityHidden(true)
+    }
+}
+
 // MARK: - Data display
 
 struct StatTile: View {
@@ -572,6 +628,8 @@ struct StatTile: View {
             Text(value)
                 .font(FormaFont.displayFont(24, weight: .bold))
                 .foregroundStyle(accent ? palette.accentText : palette.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
                 .contentTransition(.numericText())
             Text(label.uppercased())
                 .font(FormaFont.bodyFont(10, weight: .semibold))
@@ -601,6 +659,21 @@ struct ProgressRing: View {
     var caption: String?
 
     @Environment(\.formaPalette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var ringGradient: AngularGradient {
+        AngularGradient(
+            colors: [palette.accentText.opacity(0.7), palette.accentText],
+            center: .center,
+            startAngle: .degrees(-90),
+            endAngle: .degrees(270)
+        )
+    }
+
+    private var accessibilityText: String {
+        let parts = [label, caption].compactMap { $0 }
+        return parts.isEmpty ? "Progress" : parts.joined(separator: ", ")
+    }
 
     var body: some View {
         ZStack {
@@ -609,16 +682,11 @@ struct ProgressRing: View {
             Circle()
                 .trim(from: 0, to: max(0.001, min(1, progress)))
                 .stroke(
-                    AngularGradient(
-                        colors: [Color(hex: 0xD8FF76), Color(hex: 0xAEEB3E)],
-                        center: .center,
-                        startAngle: .degrees(-90),
-                        endAngle: .degrees(270)
-                    ),
+                    ringGradient,
                     style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
                 )
                 .rotationEffect(.degrees(-90))
-                .animation(.smooth(duration: 0.6), value: progress)
+                .animation(reduceMotion ? nil : .smooth(duration: 0.6), value: progress)
             VStack(spacing: 1) {
                 if let label {
                     Text(label)
@@ -636,7 +704,7 @@ struct ProgressRing: View {
         }
         .frame(width: size, height: size)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label ?? "Progress"), \(caption ?? "")")
+        .accessibilityLabel(accessibilityText)
     }
 }
 
@@ -650,7 +718,7 @@ struct SetDots: View {
         HStack(spacing: 5) {
             ForEach(0..<max(total, 1), id: \.self) { index in
                 Capsule()
-                    .fill(index < completed ? palette.accent : palette.surfaceRaised)
+                    .fill(index < completed ? palette.accentText : palette.surfaceRaised)
                     .frame(width: index < completed ? 18 : 10, height: 6)
                     .overlay {
                         if index >= completed {

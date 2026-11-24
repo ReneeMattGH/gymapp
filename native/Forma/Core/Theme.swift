@@ -36,7 +36,7 @@ enum FormaFont {
         case .medium: name = displayMedium
         default: name = display
         }
-        return .custom(name, size: size)
+        return .custom(name, size: size, relativeTo: textStyle(for: size))
     }
 
     static func bodyFont(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
@@ -46,7 +46,23 @@ enum FormaFont {
         case .medium: name = bodyMedium
         default: name = body
         }
-        return .custom(name, size: size)
+        return .custom(name, size: size, relativeTo: textStyle(for: size))
+    }
+
+    /// Maps a point size onto a Dynamic Type style so custom fonts scale with
+    /// the user's text-size setting instead of staying fixed.
+    private static func textStyle(for size: CGFloat) -> Font.TextStyle {
+        switch size {
+        case 30...: .largeTitle
+        case 24..<30: .title
+        case 20..<24: .title2
+        case 18..<20: .title3
+        case 15..<18: .headline
+        case 13..<15: .body
+        case 11.5..<13: .subheadline
+        case 10..<11.5: .footnote
+        default: .caption2
+        }
     }
 }
 
@@ -236,7 +252,7 @@ struct Wordmark: View {
 
     var body: some View {
         HStack(spacing: Spacing.sm) {
-            BrandMark(size: compact ? 22 : 28, color: palette.accent)
+            BrandMark(size: compact ? 22 : 28, color: palette.accentText)
             if !compact {
                 Text("FORMA")
                     .font(FormaFont.displayFont(19, weight: .bold))

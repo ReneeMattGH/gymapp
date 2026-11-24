@@ -4,6 +4,11 @@ struct ActiveWorkoutView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.formaPalette) private var palette
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private enum Field: Hashable {
+        case reps, weight
+    }
 
     @State private var now = Date()
     @State private var repsText = ""
@@ -14,7 +19,9 @@ struct ActiveWorkoutView: View {
     @State private var error: String?
     @State private var confirmFinish = false
     @State private var confirmDiscard = false
+    @State private var confirmSkip = false
     @State private var lastExerciseId: String?
+    @FocusState private var focusedField: Field?
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -83,6 +90,24 @@ struct ActiveWorkoutView: View {
             Button("Keep training", role: .cancel) {}
         } message: {
             Text("Nothing from this session will be saved.")
+        }
+        .confirmationDialog(
+            "Skip this exercise?",
+            isPresented: $confirmSkip,
+            titleVisibility: .visible
+        ) {
+            Button("Skip exercise", role: .destructive) {
+                Task { await model.skipExercise() }
+            }
+            Button("Keep going", role: .cancel) {}
+        } message: {
+            Text("Sets you have not logged will not be saved. You can come back to this movement later.")
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { focusedField = nil }
+            }
         }
     }
 
@@ -190,7 +215,7 @@ struct ActiveWorkoutView: View {
                     Capsule()
                         .fill(palette.accent)
                         .frame(width: max(4, geometry.size.width * completion(workout)))
-                        .animation(.smooth(duration: 0.35), value: completion(workout))
+                        .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: completion(workout))
                 }
             }
             .frame(height: 3)
@@ -315,7 +340,7 @@ struct ActiveWorkoutView: View {
                     TextButton(title: "Remove last set", destructive: true) {
                         Task {
                             await model.removeLastSet(for: exercise)
-                            syncInputs()
+                            syncInputs(force: true)
                         }
                     }
                 }
@@ -326,7 +351,7 @@ struct ActiveWorkoutView: View {
                     showReplace = true
                 }
                 SecondaryButton(title: "Skip", systemImage: "forward.end", isDisabled: workout.status == .paused) {
-                    Task { await model.skipExercise() }
+                    confirmSkip = true
                 }
             }
             formCheckRow(exercise: exercise)
@@ -423,20 +448,22 @@ struct ActiveWorkoutView: View {
                         Text(rest.isPaused ? "Resume" : "Pause")
                             .font(FormaFont.bodyFont(12, weight: .semibold))
                             .foregroundStyle(palette.accentInk)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: 44)
                             .background(palette.accent, in: Capsule())
                     }
+                    .buttonStyle(PressableScaleStyle())
                     Button {
                         Task { await model.skipRest() }
                     } label: {
                         Text("Skip rest")
                             .font(FormaFont.bodyFont(12, weight: .medium))
                             .foregroundStyle(palette.textSecondary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: 44)
                             .background(palette.surfaceRaised, in: Capsule())
                     }
+                    .buttonStyle(PressableScaleStyle())
                 }
             }
             Spacer(minLength: 0)
@@ -459,14 +486,16 @@ struct ActiveWorkoutView: View {
                     .font(FormaFont.displayFont(22, weight: .semibold))
                     .foregroundStyle(palette.text)
                     .keyboardType(.numberPad)
+                    .focused($focusedField, equals: .reps)
                     .multilineTextAlignment(.center)
-                    .frame(height: 52)
+                    .frame(minHeight: 52)
                     .frame(maxWidth: .infinity)
                     .background(palette.input, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                            .strokeBorder(palette.border, lineWidth: 1)
+                            .strokeBorder(focusedField == .reps ? palette.accentBorder : palette.border, lineWidth: 1)
                     }
+                    .accessibilityLabel("Reps completed")
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text("Weight (\(model.units.abbreviation))")
@@ -476,14 +505,16 @@ struct ActiveWorkoutView: View {
                     .font(FormaFont.displayFont(22, weight: .semibold))
                     .foregroundStyle(palette.text)
                     .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .weight)
                     .multilineTextAlignment(.center)
-                    .frame(height: 52)
+                    .frame(minHeight: 52)
                     .frame(maxWidth: .infinity)
                     .background(palette.input, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                            .strokeBorder(palette.border, lineWidth: 1)
+                            .strokeBorder(focusedField == .weight ? palette.accentBorder : palette.border, lineWidth: 1)
                     }
+                    .accessibilityLabel("Weight in \(model.units.abbreviation)")
             }
         }
         .onAppear {
@@ -544,7 +575,7 @@ struct ActiveWorkoutView: View {
                     if showWarmup {
                         ForEach(workout.warmup, id: \.self) { step in
                             HStack(alignment: .top, spacing: Spacing.sm) {
-                                Circle().fill(palette.accent).frame(width: 4, height: 4).padding(.top, 6)
+                                Circle().fill(palette.accentText).frame(width: 4, height: 4).padding(.top, 6)
                                 Text(step)
                                     .font(FormaFont.bodyFont(11.5))
                                     .foregroundStyle(palette.textSecondary)
@@ -677,7 +708,7 @@ struct ActiveWorkoutView: View {
         error = nil
         Task {
             await model.completeSet(exercise: exercise, reps: reps, weightKg: weightKg)
-            repsText = "\(exercise.repsMax)"
+            syncInputs(force: true)
         }
     }
 
@@ -719,6 +750,7 @@ struct WorkoutSummaryView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @Environment(\.formaPalette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
 
     private var exerciseCount: Int {
@@ -789,6 +821,11 @@ struct WorkoutSummaryView: View {
                 }
                 .padding(.top, Spacing.sm)
 
+                SecondaryButton(title: "View in Progress", systemImage: "chart.line.uptrend.xyaxis") {
+                    dismiss()
+                    model.pendingDeepLink = .progress
+                }
+
                 Text("Saved on this device. Open Progress to see it in your history.")
                     .font(FormaFont.bodyFont(10.5))
                     .foregroundStyle(palette.textTertiary)
@@ -802,6 +839,10 @@ struct WorkoutSummaryView: View {
         .scrollIndicators(.hidden)
         .background(FormaBackground())
         .onAppear {
+            guard !reduceMotion else {
+                appeared = true
+                return
+            }
             withAnimation(.spring(response: 0.45, dampingFraction: 0.72)) { appeared = true }
         }
     }

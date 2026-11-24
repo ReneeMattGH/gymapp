@@ -323,7 +323,7 @@ private struct FormAnalysisSetupView: View {
     private func privacyLine(_ text: String) -> some View {
         HStack(alignment: .top, spacing: Spacing.sm) {
             Circle()
-                .fill(palette.accent)
+                .fill(palette.accentText)
                 .frame(width: 4, height: 4)
                 .padding(.top, 7)
             Text(text)

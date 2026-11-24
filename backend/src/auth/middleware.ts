@@ -39,6 +39,7 @@ export function createRequireAuth(pool: Pool): RequestHandler {
          JOIN users u ON u.id = s.user_id
          WHERE s.access_token_hash = $1
            AND s.revoked_at IS NULL
+           AND s.access_expires_at > now()
            AND s.expires_at > now()`,
         [hashToken(token)],
       );

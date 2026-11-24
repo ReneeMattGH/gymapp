@@ -152,6 +152,36 @@ describe('auth API', () => {
     assert.equal(me.status, 401);
   });
 
+  it('refreshes after the access token expires while the session is alive', async () => {
+    const registered = await request(app).post('/api/v1/auth/register').send(credentials);
+    assert.equal(registered.status, 201);
+
+    // Expire only the access token; the session and refresh token stay valid.
+    await pool.query("UPDATE sessions SET access_expires_at = now() - interval '1 minute' WHERE user_id = $1", [
+      registered.body.user.id,
+    ]);
+
+    const expired = await request(app)
+      .get('/api/v1/auth/me')
+      .set('authorization', `Bearer ${registered.body.tokens.accessToken}`);
+    assert.equal(expired.status, 401);
+
+    const refreshed = await request(app)
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: registered.body.tokens.refreshToken });
+    assert.equal(refreshed.status, 200, refreshed.text);
+
+    const after = await request(app)
+      .get('/api/v1/auth/me')
+      .set('authorization', `Bearer ${refreshed.body.tokens.accessToken}`);
+    assert.equal(after.status, 200);
+
+    const replay = await request(app)
+      .get('/api/v1/auth/me')
+      .set('authorization', `Bearer ${registered.body.tokens.accessToken}`);
+    assert.equal(replay.status, 401, 'the rotated-out access token must stop working');
+  });
+
   it('revokes access on logout', async () => {
     const registered = await request(app).post('/api/v1/auth/register').send(credentials);
     const accessToken = registered.body.tokens.accessToken;

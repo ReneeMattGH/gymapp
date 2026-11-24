@@ -91,7 +91,11 @@ struct CommunityMemberRow: View {
     private var subtitle: String {
         var pieces: [String] = []
         if let gym = member.gymName { pieces.append(gym) }
-        if let area = member.area { pieces.append(area) }
+        let place = [member.area, member.city, member.country]
+            .compactMap { $0 }
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        if !place.isEmpty { pieces.append(place.joined(separator: ", ")) }
         pieces.append("@\(member.username)")
         return pieces.joined(separator: " · ")
     }

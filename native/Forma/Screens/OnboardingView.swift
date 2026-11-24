@@ -3,6 +3,7 @@ import SwiftUI
 struct OnboardingView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.formaPalette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var step = 0
     @State private var name = ""
@@ -45,19 +46,25 @@ struct OnboardingView: View {
     private var flow: some View {
         VStack(spacing: 0) {
             header
-            ScrollView {
-                VStack(alignment: .leading, spacing: Spacing.xl) {
-                    stepContent
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Spacing.xl) {
+                        Color.clear.frame(height: 0).id("top")
+                        stepContent
+                    }
+                    .padding(.horizontal, Spacing.xl)
+                    .padding(.top, Spacing.xl)
+                    .padding(.bottom, Spacing.xxxl)
+                    .frame(maxWidth: 560)
+                    .frame(maxWidth: .infinity)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: step)
                 }
-                .padding(.horizontal, Spacing.xl)
-                .padding(.top, Spacing.xl)
-                .padding(.bottom, Spacing.xxxl)
-                .frame(maxWidth: 560)
-                .frame(maxWidth: .infinity)
-                .animation(.easeOut(duration: 0.22), value: step)
+                .scrollIndicators(.hidden)
+                .scrollDismissesKeyboard(.interactively)
+                .onChange(of: step) { _, _ in
+                    proxy.scrollTo("top", anchor: .top)
+                }
             }
-            .scrollIndicators(.hidden)
-            .scrollDismissesKeyboard(.interactively)
             footer
         }
         .sheet(isPresented: $showAvoidSheet) {
@@ -381,7 +388,7 @@ struct OnboardingView: View {
                 Spacer(minLength: Spacing.sm)
                 Toggle("", isOn: $remindersOn)
                     .labelsHidden()
-                    .tint(palette.accent)
+                    .tint(palette.accentText)
             }
             .padding(Spacing.md)
             .background(palette.surface, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
@@ -571,13 +578,13 @@ struct OnboardingView: View {
             Task { await finish() }
         } else {
             error = nil
-            withAnimation(.easeOut(duration: 0.22)) { step += 1 }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) { step += 1 }
         }
     }
 
     private func back() {
         error = nil
-        withAnimation(.easeOut(duration: 0.22)) { step = max(0, step - 1) }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) { step = max(0, step - 1) }
     }
 
     private func hydrate() {
@@ -795,7 +802,7 @@ private struct OnboardingCommunityStep: View {
         loading = true
         do {
             async let bootstrap = service.communityBootstrap()
-            async let results = service.communitySearchGyms(query: "", limit: 30, offset: 0)
+            async let results = service.communitySearchGyms(query: "", country: "", city: "", area: "", postalCode: "", limit: 30, offset: 0)
             areas = try await bootstrap.areas
             gyms = try await results
         } catch {
@@ -806,7 +813,7 @@ private struct OnboardingCommunityStep: View {
 
     private func searchGyms(_ value: String) async {
         do {
-            gyms = try await service.communitySearchGyms(query: value, limit: 30, offset: 0)
+            gyms = try await service.communitySearchGyms(query: value, country: "", city: "", area: "", postalCode: "", limit: 30, offset: 0)
         } catch {
             self.error = error.localizedDescription
         }
@@ -816,7 +823,7 @@ private struct OnboardingCommunityStep: View {
         busy = true
         error = nil
         do {
-            try await service.communityJoinGym(id: gym.id)
+            try await service.communityJoinGym(id: gym.id, isPrimary: true, membershipType: "member", visibility: "members")
             selection = gym.name
         } catch {
             self.error = error.localizedDescription
@@ -844,6 +851,7 @@ struct PlanReadyView: View {
     let outcome: OnboardingOutcome
     @Environment(AppModel.self) private var model
     @Environment(\.formaPalette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
 
     private var nextDay: WorkoutDay? {
@@ -938,6 +946,10 @@ struct PlanReadyView: View {
         }
         .scrollIndicators(.hidden)
         .onAppear {
+            guard !reduceMotion else {
+                appeared = true
+                return
+            }
             withAnimation(.spring(response: 0.5, dampingFraction: 0.7).delay(0.05)) {
                 appeared = true
             }

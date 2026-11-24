@@ -23,11 +23,16 @@ struct APIError: LocalizedError, Equatable, Sendable {
     )
 
     static func offline(_ underlying: Error) -> APIError {
-        APIError(
-            status: 0,
-            code: "network_unavailable",
-            message: "The Forma backend could not be reached. Check that it is running and that this device can see it."
-        )
+        let config = AppConfig.current
+        let message: String
+        if config.backendUnreachableOnThisDevice {
+            message = "This build points at a loopback address, which on a physical iPhone is the phone itself. Set FORMA_API_URL to your Mac's LAN address, for example http://192.168.1.20:8787."
+        } else if let origin = config.apiBaseURL?.absoluteString {
+            message = "The Forma backend at \(origin) could not be reached. Check that it is running, that this device is on the same network, and that the firewall allows it."
+        } else {
+            message = "The Forma backend could not be reached. Check that it is running and that this device can see it."
+        }
+        return APIError(status: 0, code: "network_unavailable", message: message)
     }
 }
 
@@ -169,6 +174,19 @@ actor APIClient {
         await tokenStore.tokens()
     }
 
+    /// An access token that is safe to present now. Refreshes first when the
+    /// stored one is about to expire, so a long-lived socket reconnect does not
+    /// keep retrying a token the server has already rejected.
+    func validAccessToken() async throws -> String {
+        guard let tokens = await tokenStore.tokens() else {
+            throw APIError.notSignedIn
+        }
+        if tokens.accessTokenExpiresAt.timeIntervalSinceNow > 30 {
+            return tokens.accessToken
+        }
+        return try await refreshTokens().accessToken
+    }
+
     func store(_ tokens: AuthTokens) async {
         await tokenStore.save(tokens)
         tokenObserver?(tokens)
@@ -242,8 +260,7 @@ actor APIClient {
                 guard (200..<300).contains(http.statusCode) else {
                     throw Self.decodeError(status: http.statusCode, data: data)
                 }
-                struct Envelope: Decodable { let tokens: AuthTokens }
-                return try JSONDecoder().decode(Envelope.self, from: data).tokens
+                return try Self.decodeRefreshResponse(data)
             } catch let error as APIError {
                 throw error
             } catch {
@@ -260,6 +277,14 @@ actor APIClient {
             await clearTokens()
             throw error
         }
+    }
+
+    /// The refresh route answers `{ tokens }` with ISO-8601 dates. Decoding it
+    /// with a plain `JSONDecoder` fails, clears the keychain and signs the user
+    /// out on the first refresh, so the strategy here is load-bearing.
+    static func decodeRefreshResponse(_ data: Data) throws -> AuthTokens {
+        struct Envelope: Decodable { let tokens: AuthTokens }
+        return try JSONDecoder.forma.decode(Envelope.self, from: data).tokens
     }
 
     private func rawPerform(

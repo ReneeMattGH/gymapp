@@ -8,6 +8,7 @@ enum AppDeepLink: Equatable {
     case community
     case connectionRequests
     case messages
+    case notifications
 
     /// Auth callbacks are handled before this parser runs, so only navigation
     /// links are accepted here.
@@ -31,6 +32,8 @@ enum AppDeepLink: Equatable {
             return .connectionRequests
         case ("community", ["messages"]):
             return .messages
+        case ("community", ["notifications"]):
+            return .notifications
         default:
             return nil
         }
