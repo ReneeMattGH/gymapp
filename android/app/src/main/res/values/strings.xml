@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Forma</string>
+    <string name="notification_channel_workout">Training reminders</string>
+    <string name="notification_channel_rest">Recovery reminders</string>
+    <string name="notification_channel_hydration">Hydration reminders</string>
+    <string name="notification_channel_weekly">Weekly review</string>
+</resources>
