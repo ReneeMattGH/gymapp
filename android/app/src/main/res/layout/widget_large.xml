@@ -1,0 +1,659 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:orientation="vertical"
+    android:padding="10dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:id="@+id/widget_brand_mark"
+            android:layout_width="15dp"
+            android:layout_height="15dp"
+            android:contentDescription="@null"
+            android:importantForAccessibility="no" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/space_grotesk_bold"
+                android:includeFontPadding="false"
+                android:letterSpacing="0.18"
+                android:text="@string/widget_brand"
+                android:textColor="@color/widget_text"
+                android:textSize="9.5sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/inter_medium"
+                android:includeFontPadding="false"
+                android:text="@string/widget_command_center"
+                android:textColor="@color/widget_text_tertiary"
+                android:textSize="8sp" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="end"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_date"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/inter_semibold"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="@color/widget_text_secondary"
+                android:textSize="8.5sp" />
+
+            <TextView
+                android:id="@+id/widget_freshness"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/inter_medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/widget_updated_just_now"
+                android:textColor="@color/widget_text_tertiary"
+                android:textSize="8sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="112dp"
+        android:layout_marginTop="6dp"
+        android:baselineAligned="false"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="@drawable/widget_card"
+            android:orientation="vertical"
+            android:padding="8dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/widget_eyebrow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="@font/inter_semibold"
+                    android:includeFontPadding="false"
+                    android:letterSpacing="0.1"
+                    android:maxLines="1"
+                    android:textColor="@color/widget_accent_text"
+                    android:textSize="8.5sp" />
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
+
+                <ImageView
+                    android:id="@+id/widget_state_icon"
+                    android:layout_width="10dp"
+                    android:layout_height="10dp"
+                    android:contentDescription="@null"
+                    android:importantForAccessibility="no"
+                    android:tint="@color/widget_accent_text" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/widget_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:autoSizeMaxTextSize="15sp"
+                android:autoSizeMinTextSize="9sp"
+                android:autoSizeStepGranularity="1sp"
+                android:autoSizeTextType="uniform"
+                android:ellipsize="end"
+                android:fontFamily="@font/space_grotesk_bold"
+                android:includeFontPadding="false"
+                android:maxLines="2"
+                android:textColor="@color/widget_text" />
+
+            <TextView
+                android:id="@+id/widget_detail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:fontFamily="@font/inter_regular"
+                android:includeFontPadding="false"
+                android:maxLines="2"
+                android:textColor="@color/widget_text_secondary"
+                android:textSize="9sp" />
+
+            <TextView
+                android:layout_width="1dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <LinearLayout
+                android:id="@+id/widget_cta"
+                android:layout_width="wrap_content"
+                android:layout_height="24dp"
+                android:background="@drawable/widget_cta"
+                android:gravity="center"
+                android:orientation="horizontal"
+                android:paddingStart="9dp"
+                android:paddingEnd="9dp">
+
+                <TextView
+                    android:id="@+id/widget_cta_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="@font/inter_semibold"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="@color/widget_accent_ink"
+                    android:textSize="10.5sp" />
+
+                <ImageView
+                    android:id="@+id/widget_cta_icon"
+                    android:layout_width="8dp"
+                    android:layout_height="8dp"
+                    android:layout_marginStart="4dp"
+                    android:contentDescription="@null"
+                    android:importantForAccessibility="no"
+                    android:tint="@color/widget_accent_ink" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="112dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/widget_card_raised"
+            android:orientation="vertical"
+            android:padding="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/inter_semibold"
+                android:includeFontPadding="false"
+                android:letterSpacing="0.1"
+                android:maxLines="1"
+                android:text="@string/widget_this_week"
+                android:textColor="@color/widget_text_tertiary"
+                android:textSize="8.5sp" />
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="1dp">
+
+                <ImageView
+                    android:id="@+id/widget_week_ring"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_gravity="center"
+                    android:contentDescription="@null" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/widget_week_remaining"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:autoSizeMaxTextSize="9sp"
+                android:autoSizeMinTextSize="6.5sp"
+                android:autoSizeStepGranularity="0.5sp"
+                android:autoSizeTextType="uniform"
+                android:ellipsize="end"
+                android:fontFamily="@font/inter_semibold"
+                android:includeFontPadding="false"
+                android:maxLines="2"
+                android:textColor="@color/widget_text" />
+
+            <TextView
+                android:id="@+id/widget_week_minutes"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:ellipsize="end"
+                android:fontFamily="@font/inter_medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="@color/widget_text_tertiary"
+                android:textSize="8sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:background="@drawable/widget_card"
+        android:orientation="vertical"
+        android:padding="8dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/inter_semibold"
+                android:includeFontPadding="false"
+                android:letterSpacing="0.1"
+                android:maxLines="1"
+                android:text="@string/widget_last_7_days"
+                android:textColor="@color/widget_text_tertiary"
+                android:textSize="8.5sp" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/widget_chart_summary"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/inter_medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="@color/widget_text_tertiary"
+                android:textSize="8.5sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:baselineAligned="false"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center_horizontal"
+                android:orientation="vertical">
+
+                <FrameLayout
+                    android:layout_width="8dp"
+                    android:layout_height="16dp"
+                    android:clipChildren="false">
+
+                    <ProgressBar
+                        android:id="@+id/widget_chart_bar_0"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="16dp"
+                        android:layout_height="7dp"
+                        android:layout_gravity="center"
+                        android:indeterminate="false"
+                        android:max="100"
+                        android:maxHeight="7dp"
+                        android:minHeight="7dp"
+                        android:progress="0"
+                        android:progressDrawable="@drawable/widget_progress_chart"
+                        android:rotation="-90" />
+                </FrameLayout>
+
+                <TextView
+                    android:id="@+id/widget_chart_day_0"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:fontFamily="@font/inter_semibold"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="@color/widget_text_tertiary"
+                    android:textSize="8.5sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center_horizontal"
+                android:orientation="vertical">
+
+                <FrameLayout
+                    android:layout_width="8dp"
+                    android:layout_height="16dp"
+                    android:clipChildren="false">
+
+                    <ProgressBar
+                        android:id="@+id/widget_chart_bar_1"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="16dp"
+                        android:layout_height="7dp"
+                        android:layout_gravity="center"
+                        android:indeterminate="false"
+                        android:max="100"
+                        android:maxHeight="7dp"
+                        android:minHeight="7dp"
+                        android:progress="0"
+                        android:progressDrawable="@drawable/widget_progress_chart"
+                        android:rotation="-90" />
+                </FrameLayout>
+
+                <TextView
+                    android:id="@+id/widget_chart_day_1"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:fontFamily="@font/inter_semibold"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="@color/widget_text_tertiary"
+                    android:textSize="8.5sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center_horizontal"
+                android:orientation="vertical">
+
+                <FrameLayout
+                    android:layout_width="8dp"
+                    android:layout_height="16dp"
+                    android:clipChildren="false">
+
+                    <ProgressBar
+                        android:id="@+id/widget_chart_bar_2"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="16dp"
+                        android:layout_height="7dp"
+                        android:layout_gravity="center"
+                        android:indeterminate="false"
+                        android:max="100"
+                        android:maxHeight="7dp"
+                        android:minHeight="7dp"
+                        android:progress="0"
+                        android:progressDrawable="@drawable/widget_progress_chart"
+                        android:rotation="-90" />
+                </FrameLayout>
+
+                <TextView
+                    android:id="@+id/widget_chart_day_2"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:fontFamily="@font/inter_semibold"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="@color/widget_text_tertiary"
+                    android:textSize="8.5sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center_horizontal"
+                android:orientation="vertical">
+
+                <FrameLayout
+                    android:layout_width="8dp"
+                    android:layout_height="16dp"
+                    android:clipChildren="false">
+
+                    <ProgressBar
+                        android:id="@+id/widget_chart_bar_3"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="16dp"
+                        android:layout_height="7dp"
+                        android:layout_gravity="center"
+                        android:indeterminate="false"
+                        android:max="100"
+                        android:maxHeight="7dp"
+                        android:minHeight="7dp"
+                        android:progress="0"
+                        android:progressDrawable="@drawable/widget_progress_chart"
+                        android:rotation="-90" />
+                </FrameLayout>
+
+                <TextView
+                    android:id="@+id/widget_chart_day_3"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:fontFamily="@font/inter_semibold"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="@color/widget_text_tertiary"
+                    android:textSize="8.5sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center_horizontal"
+                android:orientation="vertical">
+
+                <FrameLayout
+                    android:layout_width="8dp"
+                    android:layout_height="16dp"
+                    android:clipChildren="false">
+
+                    <ProgressBar
+                        android:id="@+id/widget_chart_bar_4"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="16dp"
+                        android:layout_height="7dp"
+                        android:layout_gravity="center"
+                        android:indeterminate="false"
+                        android:max="100"
+                        android:maxHeight="7dp"
+                        android:minHeight="7dp"
+                        android:progress="0"
+                        android:progressDrawable="@drawable/widget_progress_chart"
+                        android:rotation="-90" />
+                </FrameLayout>
+
+                <TextView
+                    android:id="@+id/widget_chart_day_4"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:fontFamily="@font/inter_semibold"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="@color/widget_text_tertiary"
+                    android:textSize="8.5sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center_horizontal"
+                android:orientation="vertical">
+
+                <FrameLayout
+                    android:layout_width="8dp"
+                    android:layout_height="16dp"
+                    android:clipChildren="false">
+
+                    <ProgressBar
+                        android:id="@+id/widget_chart_bar_5"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="16dp"
+                        android:layout_height="7dp"
+                        android:layout_gravity="center"
+                        android:indeterminate="false"
+                        android:max="100"
+                        android:maxHeight="7dp"
+                        android:minHeight="7dp"
+                        android:progress="0"
+                        android:progressDrawable="@drawable/widget_progress_chart"
+                        android:rotation="-90" />
+                </FrameLayout>
+
+                <TextView
+                    android:id="@+id/widget_chart_day_5"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:fontFamily="@font/inter_semibold"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="@color/widget_text_tertiary"
+                    android:textSize="8.5sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center_horizontal"
+                android:orientation="vertical">
+
+                <FrameLayout
+                    android:layout_width="8dp"
+                    android:layout_height="16dp"
+                    android:clipChildren="false">
+
+                    <ProgressBar
+                        android:id="@+id/widget_chart_bar_6"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="16dp"
+                        android:layout_height="7dp"
+                        android:layout_gravity="center"
+                        android:indeterminate="false"
+                        android:max="100"
+                        android:maxHeight="7dp"
+                        android:minHeight="7dp"
+                        android:progress="0"
+                        android:progressDrawable="@drawable/widget_progress_chart"
+                        android:rotation="-90" />
+                </FrameLayout>
+
+                <TextView
+                    android:id="@+id/widget_chart_day_6"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:fontFamily="@font/inter_semibold"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="@color/widget_text_tertiary"
+                    android:textSize="8.5sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/widget_chart_hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:fontFamily="@font/inter_regular"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:text="@string/widget_chart_hint"
+            android:textColor="@color/widget_text_tertiary"
+            android:textSize="8sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:background="@drawable/widget_card"
+        android:orientation="vertical"
+        android:padding="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/inter_semibold"
+            android:includeFontPadding="false"
+            android:letterSpacing="0.1"
+            android:maxLines="1"
+            android:text="@string/widget_consistency"
+            android:textColor="@color/widget_text_tertiary"
+            android:textSize="8.5sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="bottom"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_streak"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/space_grotesk_bold"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="@color/widget_text"
+                android:textSize="24sp" />
+
+            <TextView
+                android:id="@+id/widget_streak_unit"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="5dp"
+                android:layout_marginBottom="3dp"
+                android:fontFamily="@font/inter_semibold"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/widget_day_streak"
+                android:textColor="@color/widget_text_secondary"
+                android:textSize="9.5sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/widget_streak_detail"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:fontFamily="@font/inter_medium"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="@color/widget_text_tertiary"
+            android:textSize="8.5sp" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:fontFamily="@font/inter_regular"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:text="@string/widget_disclaimer"
+        android:textColor="@color/widget_text_tertiary"
+        android:textSize="8sp" />
+</LinearLayout>

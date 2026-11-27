@@ -2,4 +2,21 @@
 <resources>
     <color name="forma_ink">#070806</color>
     <color name="forma_lime">#C7FA4F</color>
+
+    <!-- Widget palette, light -->
+    <color name="widget_bg">#FFF3F4EC</color>
+    <color name="widget_bg_alt">#FFEAEDE0</color>
+    <color name="widget_surface">#FFFFFFFF</color>
+    <color name="widget_surface_raised">#FFF6F8F0</color>
+    <color name="widget_border">#17101408</color>
+    <color name="widget_text">#FF101408</color>
+    <color name="widget_text_secondary">#FF575F4D</color>
+    <color name="widget_text_tertiary">#FF8A9280</color>
+    <color name="widget_accent">#FFC7FA4F</color>
+    <color name="widget_accent_ink">#FF101408</color>
+    <color name="widget_accent_text">#FF4F6E00</color>
+    <color name="widget_accent_soft">#1FC7FA4F</color>
+    <color name="widget_track">#14000000</color>
+    <color name="widget_warning">#FF946200</color>
+    <color name="widget_glow">#12C7FA4F</color>
 </resources>

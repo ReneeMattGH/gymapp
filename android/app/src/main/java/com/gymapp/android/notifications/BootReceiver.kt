@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import com.gymapp.android.data.local.FormaDatabase
 import com.gymapp.android.data.local.Mappers.toDomain
+import com.gymapp.android.widget.WidgetUpdater
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -26,11 +27,17 @@ class BootReceiver : BroadcastReceiver() {
                 val database = FormaDatabase.get(appContext)
                 val activeId = database.settingsDao().get("active-profile-id")
                 if (activeId != null) {
-                    val stored = database.remindersDao().byUser(activeId) ?: return@launch
-                    val settings = stored.toDomain()
-                    if (settings.enabled) {
-                        ReminderScheduler(appContext).schedule(settings)
+                    val stored = database.remindersDao().byUser(activeId)
+                    if (stored != null) {
+                        val settings = stored.toDomain()
+                        if (settings.enabled) {
+                            ReminderScheduler(appContext).schedule(settings)
+                        }
                     }
+                }
+                if (WidgetUpdater.widgetIds(appContext).isNotEmpty()) {
+                    WidgetUpdater.scheduleMidnight(appContext)
+                    WidgetUpdater.refresh(appContext)
                 }
             } catch (_: Exception) {
                 // A missing reminder is recoverable; crashing at boot is not.

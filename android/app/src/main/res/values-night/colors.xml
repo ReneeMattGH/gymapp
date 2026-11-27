@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Widget palette, dark -->
+    <color name="widget_bg">#FF070806</color>
+    <color name="widget_bg_alt">#FF0A0C09</color>
+    <color name="widget_surface">#FF11150F</color>
+    <color name="widget_surface_raised">#FF181D15</color>
+    <color name="widget_border">#17FFFFFF</color>
+    <color name="widget_text">#FFF3F6EE</color>
+    <color name="widget_text_secondary">#FFA9B2A0</color>
+    <color name="widget_text_tertiary">#FF7B8573</color>
+    <color name="widget_accent">#FFC7FA4F</color>
+    <color name="widget_accent_ink">#FF0B0E06</color>
+    <color name="widget_accent_text">#FFC7FA4F</color>
+    <color name="widget_accent_soft">#1FC7FA4F</color>
+    <color name="widget_track">#1AFFFFFF</color>
+    <color name="widget_warning">#FFF2C46B</color>
+    <color name="widget_glow">#1AC7FA4F</color>
+</resources>

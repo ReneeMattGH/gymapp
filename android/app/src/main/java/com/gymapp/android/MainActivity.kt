@@ -13,6 +13,7 @@ import com.gymapp.android.core.AppDeepLink
 import com.gymapp.android.core.AuthDeepLink
 import com.gymapp.android.store.FormaViewModel
 import com.gymapp.android.ui.FormaApp
+import com.gymapp.android.widget.WidgetUpdater
 
 class MainActivity : ComponentActivity() {
     private val model: FormaViewModel by viewModels()
@@ -32,6 +33,12 @@ class MainActivity : ComponentActivity() {
                 onConsumeResetToken = { pendingResetToken = null },
             )
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Recomputes "today" and the seven-day strip when the user returns.
+        WidgetUpdater.refresh(this)
     }
 
     override fun onNewIntent(intent: Intent) {

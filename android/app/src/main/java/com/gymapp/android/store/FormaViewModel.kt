@@ -41,6 +41,7 @@ import com.gymapp.android.domain.WorkoutRunStatus
 import com.gymapp.android.domain.WorkoutSession
 import com.gymapp.android.notifications.ReminderPermissionException
 import com.gymapp.android.notifications.ReminderScheduler
+import com.gymapp.android.widget.WidgetUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -175,6 +176,7 @@ class FormaViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 rescheduleReminders(reminders)
+                publishWidgets()
                 restoreAccount()
             } catch (error: Exception) {
                 _state.update {
@@ -199,6 +201,9 @@ class FormaViewModel(application: Application) : AndroidViewModel(application) {
             runCatching { reminderScheduler.schedule(settings) }
         }
     }
+
+    /** Mirrors iOS: the widget reloads only after a real write, never on a timer. */
+    private fun publishWidgets() = WidgetUpdater.publish(app)
 
     // MARK: - Theme & units
 
@@ -302,6 +307,7 @@ class FormaViewModel(application: Application) : AndroidViewModel(application) {
                         ),
                     )
                 }
+                publishWidgets()
             } catch (error: Exception) {
                 _state.update {
                     it.copy(
@@ -322,6 +328,7 @@ class FormaViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun savePreferences(next: Preferences) {
         repository?.savePreferences(next)
         _state.update { it.copy(preferences = next) }
+        publishWidgets()
     }
 
     fun updateSchedule(days: List<Int>, minutes: Int) {
@@ -357,6 +364,7 @@ class FormaViewModel(application: Application) : AndroidViewModel(application) {
             }
             repo.savePlan(next)
             _state.update { it.copy(isGeneratingPlan = false, plan = next) }
+            publishWidgets()
             onDone(null)
         }
     }
@@ -383,6 +391,7 @@ class FormaViewModel(application: Application) : AndroidViewModel(application) {
             }
             repo.savePlan(plan)
             _state.update { it.copy(plan = plan) }
+            publishWidgets()
             onDone(null)
         }
     }
@@ -417,7 +426,7 @@ class FormaViewModel(application: Application) : AndroidViewModel(application) {
             rest = null,
         )
         _state.update { it.copy(activeWorkout = workout, workoutSummary = null, workoutError = null) }
-        persist(workout)
+        persist(workout, publish = true)
     }
 
     private fun updateWorkout(transform: (ActiveWorkout) -> ActiveWorkout) {
@@ -427,9 +436,12 @@ class FormaViewModel(application: Application) : AndroidViewModel(application) {
         persist(next)
     }
 
-    private fun persist(workout: ActiveWorkout) {
+    private fun persist(workout: ActiveWorkout, publish: Boolean = false) {
         val repo = repository ?: return
-        viewModelScope.launch(Dispatchers.IO) { repo.saveActiveWorkout(workout) }
+        viewModelScope.launch(Dispatchers.IO) {
+            repo.saveActiveWorkout(workout)
+            if (publish) publishWidgets()
+        }
     }
 
     fun completeSet(exercise: WorkoutExercise, reps: Int, weightKg: Double?) {
@@ -627,6 +639,7 @@ class FormaViewModel(application: Application) : AndroidViewModel(application) {
                         activeWorkout = null,
                     )
                 }
+                publishWidgets()
             } catch (error: Exception) {
                 _state.update {
                     it.copy(isSavingWorkout = false, workoutError = error.message ?: "The workout could not be saved.")
@@ -639,7 +652,10 @@ class FormaViewModel(application: Application) : AndroidViewModel(application) {
         val repo = repository
         val workout = _state.value.activeWorkout ?: return
         _state.update { it.copy(activeWorkout = null, workoutSummary = null, workoutError = null) }
-        viewModelScope.launch(Dispatchers.IO) { repo?.clearActiveWorkout(workout.userId) }
+        viewModelScope.launch(Dispatchers.IO) {
+            repo?.clearActiveWorkout(workout.userId)
+            publishWidgets()
+        }
     }
 
     fun dismissSummary() {
@@ -985,6 +1001,7 @@ class FormaViewModel(application: Application) : AndroidViewModel(application) {
                         localProfiles = repo.listProfiles(),
                     )
                 }
+                publishWidgets()
             }.onSuccess { onDone(null) }
                 .onFailure { onDone(it.message ?: "Your changes could not be saved.") }
         }
@@ -1019,6 +1036,7 @@ class FormaViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             rescheduleReminders(reminders)
+            publishWidgets()
         }
     }
 
@@ -1043,6 +1061,7 @@ class FormaViewModel(application: Application) : AndroidViewModel(application) {
                     workoutError = null,
                 )
             }
+            publishWidgets()
         }
     }
 
@@ -1098,6 +1117,7 @@ class FormaViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                 }
+                publishWidgets()
             }.onSuccess { onDone(null) }
                 .onFailure { onDone(it.message ?: "The profile could not be deleted.") }
         }
@@ -1122,6 +1142,7 @@ class FormaViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             reminderScheduler.cancelAll()
+            publishWidgets()
         }
     }
 
