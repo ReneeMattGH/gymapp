@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -57,7 +58,8 @@ fun RecoveryScreen(
         SubScreenHeader(onBack = onBack)
         Column(
             Modifier
-                .fillMaxSize()
+                .weight(1f)
+                .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = Spacing.xl)
                 .padding(top = Spacing.sm, bottom = Spacing.xxxl),
@@ -109,8 +111,9 @@ fun RecoveryScreen(
                         value = "${TrainingStats.currentWeekCount(state.sessions)}/${maxOf(1, state.plan?.daysPerWeek ?: 3)}",
                         label = "this week",
                     )
+                    val streak = TrainingStats.currentStreak(state.sessions)
                     SnapshotStat(
-                        value = "${TrainingStats.currentStreak(state.sessions)} days",
+                        value = "$streak ${if (streak == 1) "day" else "days"}",
                         label = "streak",
                     )
                     Spacer(Modifier.weight(1f))

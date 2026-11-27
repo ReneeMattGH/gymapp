@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -137,8 +138,8 @@ fun ProfileScreen(
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
                 .statusBarsPadding()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = Spacing.xl)
                 .padding(top = Spacing.md, bottom = Spacing.xxxl),
             verticalArrangement = Arrangement.spacedBy(Spacing.xl),
@@ -676,7 +677,8 @@ fun PreferencesScreen(
         SubScreenHeader(onBack = onBack)
         Column(
             Modifier
-                .fillMaxSize()
+                .weight(1f)
+                .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = Spacing.xl)
                 .padding(top = Spacing.sm, bottom = Spacing.xxxl),

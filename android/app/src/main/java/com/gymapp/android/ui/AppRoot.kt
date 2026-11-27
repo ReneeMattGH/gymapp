@@ -257,6 +257,7 @@ private fun MainShell(
                         model = model,
                         state = state,
                         onOpenExercise = { navController.navigate(Routes.exercise(it)) },
+                        onBack = { navController.popBackStack() },
                     )
                 }
                 composable(Routes.EXERCISE) { entry ->

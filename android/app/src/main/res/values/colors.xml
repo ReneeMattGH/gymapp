@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="forma_ink">#070806</color>
+    <color name="forma_paper">#F3F4EC</color>
     <color name="forma_lime">#C7FA4F</color>
 
     <!-- Widget palette, light -->

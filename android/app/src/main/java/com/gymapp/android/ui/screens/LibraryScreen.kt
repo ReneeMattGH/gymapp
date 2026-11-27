@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -69,6 +69,25 @@ fun LibraryScreen(
     model: FormaViewModel,
     state: FormaUiState,
     onOpenExercise: (String) -> Unit,
+    onBack: () -> Unit,
+) {
+    Column(Modifier.fillMaxSize()) {
+        SubScreenHeader(onBack = onBack)
+        LibraryContent(
+            model = model,
+            state = state,
+            onOpenExercise = onOpenExercise,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun LibraryContent(
+    model: FormaViewModel,
+    state: FormaUiState,
+    onOpenExercise: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = FormaTheme.colors
     var query by remember { mutableStateOf("") }
@@ -93,10 +112,9 @@ fun LibraryScreen(
     LaunchedEffect(filters, visibleCount) { }
 
     Column(
-        Modifier
-            .fillMaxSize()
+        modifier
+            .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
-            .statusBarsPadding()
             .padding(horizontal = Spacing.xl)
             .padding(top = Spacing.sm, bottom = Spacing.xxxl),
         verticalArrangement = Arrangement.spacedBy(Spacing.lg),
@@ -402,6 +420,7 @@ fun ExerciseDetailScreen(
         Column(
             Modifier
                 .weight(1f)
+                .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = Spacing.xl)
                 .padding(top = Spacing.sm, bottom = Spacing.xxxl),

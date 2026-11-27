@@ -1,6 +1,7 @@
 package com.gymapp.android.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -100,8 +101,8 @@ fun HomeScreen(
     Column(
         Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .statusBarsPadding()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = Spacing.xl)
             .padding(top = Spacing.md, bottom = Spacing.xxxl),
         verticalArrangement = Arrangement.spacedBy(Spacing.xl),
@@ -276,6 +277,7 @@ private fun WorkoutCard(day: WorkoutDay, state: FormaUiState, onStart: () -> Uni
             .clip(RoundedCornerShape(Radius.xl))
             .background(colors.surface)
             .background(colors.accentSoft)
+            .border(1.dp, colors.accentBorder, RoundedCornerShape(Radius.xl))
             .padding(Spacing.lg),
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {

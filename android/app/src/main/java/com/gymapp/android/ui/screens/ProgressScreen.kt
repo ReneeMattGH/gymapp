@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -152,8 +153,8 @@ fun ProgressScreen(
     Column(
         Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .statusBarsPadding()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = Spacing.xl)
             .padding(top = Spacing.md, bottom = Spacing.xxxl),
         verticalArrangement = Arrangement.spacedBy(Spacing.xl),
@@ -165,24 +166,27 @@ fun ProgressScreen(
         )
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                val sessionCount = state.completedSessions.size
                 StatTile(
-                    value = "${state.completedSessions.size}",
-                    label = "Sessions",
+                    value = "$sessionCount",
+                    label = if (sessionCount == 1) "Session" else "Sessions",
                     detail = "completed",
                     modifier = Modifier.weight(1f),
                 )
+                val streak = TrainingStats.currentStreak(state.sessions)
                 StatTile(
-                    value = "${TrainingStats.currentStreak(state.sessions)}",
+                    value = "$streak",
                     label = "Streak",
-                    detail = "days",
+                    detail = if (streak == 1) "day" else "days",
                     accent = true,
                     modifier = Modifier.weight(1f),
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                val reps = state.completedSessions.sumOf { TrainingStats.sessionReps(it) }
                 StatTile(
-                    value = "${state.completedSessions.sumOf { TrainingStats.sessionReps(it) }}",
-                    label = "Reps",
+                    value = "$reps",
+                    label = if (reps == 1) "Rep" else "Reps",
                     detail = "logged",
                     modifier = Modifier.weight(1f),
                 )
@@ -440,7 +444,7 @@ private fun LineChart(
             val denominator = maxOf(1, values.size - 1)
             val points = values.mapIndexed { index, value ->
                 Offset(
-                    x = size.width * index / denominator,
+                    x = if (values.size == 1) size.width / 2f else size.width * index / denominator,
                     y = size.height * (1f - (value / maxValue) * 0.92f),
                 )
             }
@@ -469,12 +473,18 @@ private fun LineChart(
         }
         if (showLabels && labels.isNotEmpty()) {
             Spacer(Modifier.height(6.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(labels.first(), style = bodyFont(9f), color = colors.textTertiary)
-                if (labels.size > 2) {
-                    Text(labels[labels.size / 2], style = bodyFont(9f), color = colors.textTertiary)
+            if (labels.size == 1) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    Text(labels.first(), style = bodyFont(9f), color = colors.textTertiary)
                 }
-                Text(labels.last(), style = bodyFont(9f), color = colors.textTertiary)
+            } else {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(labels.first(), style = bodyFont(9f), color = colors.textTertiary)
+                    if (labels.size > 2) {
+                        Text(labels[labels.size / 2], style = bodyFont(9f), color = colors.textTertiary)
+                    }
+                    Text(labels.last(), style = bodyFont(9f), color = colors.textTertiary)
+                }
             }
         }
     }
@@ -683,6 +693,7 @@ fun SessionDetailScreen(
         Column(
             Modifier
                 .weight(1f)
+                .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = Spacing.xl)
                 .padding(top = Spacing.sm, bottom = Spacing.xxxl),

@@ -39,7 +39,7 @@ interface PreferencesDao {
 
 @Dao
 interface PlanDao {
-    @Query("SELECT * FROM workout_plans WHERE userId = :userId AND (status = 'active' OR status IS NULL) ORDER BY createdAt DESC LIMIT 1")
+    @Query("SELECT * FROM workout_plans WHERE userId = :userId AND (status = 'ACTIVE' OR status = 'active' OR status IS NULL) ORDER BY createdAt DESC LIMIT 1")
     suspend fun activePlan(userId: String): PlanEntity?
 
     @Query("SELECT * FROM workout_plans WHERE userId = :userId ORDER BY createdAt DESC")

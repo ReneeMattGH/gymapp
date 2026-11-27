@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -104,8 +105,8 @@ fun WorkoutsScreen(
     Column(
         Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .statusBarsPadding()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = Spacing.xl)
             .padding(top = Spacing.md, bottom = Spacing.xxxl),
         verticalArrangement = Arrangement.spacedBy(Spacing.xl),
@@ -392,6 +393,7 @@ fun PlanBuilderScreen(
         Column(
             Modifier
                 .weight(1f)
+                .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = Spacing.xl)
                 .padding(bottom = Spacing.xxl),
@@ -421,6 +423,7 @@ fun PlanBuilderScreen(
             Modifier
                 .fillMaxWidth()
                 .background(colors.background)
+                .navigationBarsPadding()
                 .padding(horizontal = Spacing.xl)
                 .padding(top = Spacing.md, bottom = Spacing.lg),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
@@ -623,6 +626,7 @@ fun PlanDayScreen(
         Column(
             Modifier
                 .weight(1f)
+                .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = Spacing.xl)
                 .padding(top = Spacing.sm, bottom = Spacing.xxxl),

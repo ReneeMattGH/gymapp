@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -292,6 +293,7 @@ fun OnboardingFlow(model: FormaViewModel, state: FormaUiState) {
             Modifier
                 .fillMaxWidth()
                 .background(colors.background)
+                .navigationBarsPadding()
                 .padding(horizontal = Spacing.xl)
                 .padding(top = Spacing.md, bottom = Spacing.sm),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
@@ -771,7 +773,9 @@ fun PlanReadyScreen(state: FormaUiState, outcome: OnboardingOutcome, onEnter: ()
         Column(
             Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
                 .padding(horizontal = Spacing.xl)
                 .padding(top = Spacing.xxxl, bottom = Spacing.xxxl),
             horizontalAlignment = Alignment.CenterHorizontally,

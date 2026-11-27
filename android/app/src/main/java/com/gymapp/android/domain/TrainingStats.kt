@@ -106,7 +106,10 @@ object TrainingStats {
 
     fun sessionReps(session: WorkoutSession): Int = totalReps(session.sets)
 
-    fun sessionSubtitle(session: WorkoutSession): String =
-        "${Formatters.shortDate(FormaDate.date(session.startedAt))} · " +
-            "${Formatters.minutesLabel(session.durationSeconds)} · ${session.sets.size} sets"
+    fun sessionSubtitle(session: WorkoutSession): String {
+        val setCount = session.sets.size
+        val setLabel = if (setCount == 1) "set" else "sets"
+        return "${Formatters.shortDate(FormaDate.date(session.startedAt))} · " +
+            "${Formatters.minutesLabel(session.durationSeconds)} · $setCount $setLabel"
+    }
 }

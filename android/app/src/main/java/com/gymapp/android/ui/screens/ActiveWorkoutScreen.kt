@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -154,14 +155,14 @@ fun ActiveWorkoutScreen(
         repsText = "${exercise.repsMax}"
     }
 
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().background(colors.background)) {
         Column(
             Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
                 .padding(horizontal = Spacing.xl)
                 .padding(top = Spacing.sm, bottom = Spacing.md)
-                .background(colors.background.copy(alpha = 0.96f)),
+                .background(colors.background),
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
@@ -325,7 +326,8 @@ fun ActiveWorkoutScreen(
         Column(
             Modifier
                 .fillMaxWidth()
-                .background(colors.background.copy(alpha = 0.97f))
+                .background(colors.background)
+                .navigationBarsPadding()
                 .padding(horizontal = Spacing.xl)
                 .padding(top = Spacing.md, bottom = Spacing.sm),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
@@ -969,8 +971,10 @@ fun WorkoutSummaryScreen(
     Column(
         Modifier
             .fillMaxSize()
+            .background(colors.background)
             .statusBarsPadding()
             .verticalScroll(rememberScrollState())
+            .navigationBarsPadding()
             .padding(horizontal = Spacing.xl)
             .padding(bottom = Spacing.xxxl),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1004,11 +1008,25 @@ fun WorkoutSummaryScreen(
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 StatTile(value = durationText, label = "Duration", modifier = Modifier.weight(1f))
-                StatTile(value = "${session.sets.size}", label = "Sets", modifier = Modifier.weight(1f))
+                StatTile(
+                    value = "${session.sets.size}",
+                    label = if (session.sets.size == 1) "Set" else "Sets",
+                    modifier = Modifier.weight(1f),
+                )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                StatTile(value = "${TrainingStats.totalReps(session.sets)}", label = "Reps", modifier = Modifier.weight(1f))
-                StatTile(value = "$exerciseCount", label = "Exercises", accent = true, modifier = Modifier.weight(1f))
+                val reps = TrainingStats.totalReps(session.sets)
+                StatTile(
+                    value = "$reps",
+                    label = if (reps == 1) "Rep" else "Reps",
+                    modifier = Modifier.weight(1f),
+                )
+                StatTile(
+                    value = "$exerciseCount",
+                    label = if (exerciseCount == 1) "Exercise" else "Exercises",
+                    accent = true,
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
         if (volume != null) {
